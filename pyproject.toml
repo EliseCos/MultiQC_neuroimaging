@@ -38,6 +38,7 @@ packages = [
     "neuroimaging.modules",
     "neuroimaging.modules.tractometry",
     "neuroimaging.modules.metricsinroi",
+    "neuroimaging.modules.metricsinroi_harmonized",
     "neuroimaging.modules.cortical",
     "neuroimaging.modules.subcortical",
     "neuroimaging.modules.framewise_displacement",
@@ -64,6 +65,7 @@ framewise_displacement = "neuroimaging.modules.framewise_displacement:MultiqcMod
 coverage = "neuroimaging.modules.coverage:MultiqcModule"
 streamline_count = "neuroimaging.modules.streamline_count:MultiqcModule"
 metricsinroi = "neuroimaging.modules.metricsinroi:MultiqcModule"
+metricsinroi_harmonized = "neuroimaging.modules.metricsinroi_harmonized:MultiqcModule"
 
 [project.entry-points."multiqc.cli_options.v1"]
 single_subject = "neuroimaging.cli:single_subject"

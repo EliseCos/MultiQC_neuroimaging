@@ -68,3 +68,9 @@ def neuroimaging_execution_start():
     # Metricsinroi search pattern
     if "metricsinroi" not in config.sp:
         config.update_dict(config.sp, {"metricsinroi": {"fn": "rois_mean_stats.tsv"}})
+
+    # Metricsinroi_harmonized search pattern
+    if "metricsinroi_harmonized" not in config.sp:
+        config.update_dict(config.sp, {"metricsinroi_harmonized": {"fn": "*.harmonized.tsv"}})
+
+    
