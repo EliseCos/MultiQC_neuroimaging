@@ -9,6 +9,9 @@ streamline_count:
 metricsinroi:
   iqr_multiplier: 3 # Default: samples outside Q1 - 3*IQR to Q3 + 3*IQR are marked as fail
 
+metricsinroi_harmonized:
+  iqr_multiplier: 3 # Default: samples outside Q1 - 3*IQR to Q3 + 3*IQR are marked as fail
+
 # Framewise Displacement module configuration default thresholds
 framewise_displacement:
   warn_threshold: 0.8 # Default: samples with max FD < 0.8mm get "pass" status
@@ -40,6 +43,8 @@ tractometry:
 
 # Order that modules should appear in the report
 module_order:
+  - harmonization
+  - metricsinroi_harmonized
   - framewise_displacement
   - coverage
   - streamline_count
@@ -64,3 +69,9 @@ sp:
     fn: "subcortical_*_volume_*.tsv"
   metricsinroi:
     fn: "rois_mean_stats.tsv"
+  metricsinroi_harmonized:
+    - fn: "*.harmonized.tsv"
+      shared: true
+  harmonization:
+    - fn: "*.harmonized.tsv"
+      shared: true
