@@ -166,69 +166,39 @@ class MultiqcModule(BaseMultiqcModule):
         # --- 2. Render the INITIAL View (The First Tuple) ---
         # We use fixed IDs (p1_container, p2_container...) so we can find them with JS later
 
-        def add_regression(plot_data):
-            x_vals = np.array([d["x"] for d in plot_data.values()])
-            y_vals = np.array([d["y"] for d in plot_data.values()])
-
-            # Linear fit
-            coeffs = np.polyfit(x_vals, y_vals, 1)
-            x_range = np.linspace(min(x_vals), max(x_vals), 100)
-            y_fit = coeffs[0] * x_range + coeffs[1]
-
-            # Calculate standard error for confidence bands
-            y_pred = coeffs[0] * x_vals + coeffs[1]
-            residuals = y_vals - y_pred
-            std_error = np.sqrt(np.sum(residuals**2) / (len(x_vals) - 2))
-            y_upper = y_fit + 2 * std_error
-            y_lower = y_fit - 2 * std_error
-
-            return {
-                "extra_series": [
-                    {
-                        "name": f"Linear fit (R² = {np.corrcoef(x_vals, y_vals)[0, 1] ** 2:.3f})",
-                        "data": [[float(x), float(y)] for x, y in zip(x_range, y_fit)],
-                        "color": "#ff0000",
-                        "dashStyle": "Dash",
-                        "zoneAxis": "x",
-                        "bands": [
-                            [
-                                [float(x), float(y_low), float(y_high)]
-                                for x, y_low, y_high in zip(x_range, y_lower, y_upper)
-                            ]
-                        ],
-                    }
-                ]
-            }
-
         # Create the Flexbox Layout for these 3 plots
         def make_flex_row(plot_data_list, bundle, metric, hidden=False):
             div_id = f"{bundle.replace(' ', '-')}_{metric.replace(' ', '-')}"
             # Generate the 3 individual plots
             # Note: Use unique IDs to prevent DOM conflicts!
             plot_anchors = [f"p1_{div_id}", f"p2_{div_id}", f"p3_{div_id}"]
+
             p1 = scatter.plot(
                 plot_data_list[0],
                 pconfig={
                     "id": plot_anchors[0],
                     "title": f"Datamodel raw ({metric} in {bundle})",
-                    **add_regression(plot_data_list[0]),
+                    "extra_series": {
+                        "name": "extra series name",
+                        "data": {
+                            "x": 2 + random.uniform(-variance, variance),
+                            "y": 20 + random.uniform(-variance, variance),
+                        },
+                        "dash": "dash",
+                        "width": 1,
+                        "color": "#000000",
+                        "marker": {"enabled": False},
+                        "showlegend": True,
+                    },
                 },
             )
             p2 = scatter.plot(
                 plot_data_list[1],
-                pconfig={
-                    "id": plot_anchors[1],
-                    "title": f"AgeCurve raw ({metric} in {bundle})",
-                    **add_regression(plot_data_list[1]),
-                },
+                pconfig={"id": plot_anchors[1], "title": f"AgeCurve raw ({metric} in {bundle})"},
             )
             p3 = scatter.plot(
                 plot_data_list[2],
-                pconfig={
-                    "id": plot_anchors[2],
-                    "title": f"AgeCurve harmonized ({metric} in {bundle})",
-                    **add_regression(plot_data_list[2]),
-                },
+                pconfig={"id": plot_anchors[2], "title": f"AgeCurve harmonized ({metric} in {bundle})"},
             )
 
             p1_html = p1.add_to_report(module_anchor="harmonization", section_anchor="harmonization_distributions")

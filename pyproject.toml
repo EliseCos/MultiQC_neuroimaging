@@ -69,7 +69,7 @@ coverage = "neuroimaging.modules.coverage:MultiqcModule"
 streamline_count = "neuroimaging.modules.streamline_count:MultiqcModule"
 metricsinroi = "neuroimaging.modules.metricsinroi:MultiqcModule"
 metricsinroi_harmonized = "neuroimaging.modules.metricsinroi_harmonized:MultiqcModule"
-harmonization = "neuroimaging.modules.harmonization.harmonization:MultiqcModule"
+harmonization_plotly = "neuroimaging.modules.harmonization_plotly.harmonization_plotly:MultiqcModule"
 
 [project.entry-points."multiqc.cli_options.v1"]
 single_subject = "neuroimaging.cli:single_subject"
