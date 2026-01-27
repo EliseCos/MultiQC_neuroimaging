@@ -18,29 +18,13 @@ import plotly.graph_objects as go
 import random
 import json
 import pandas as pd
-from io import StringIO
 
 from .utils import load_sites_data
 
+from .combat.plotjson import PlotJson, PlotJsonAggregator
+
 # Initialise the main MultiQC logger
 log = logging.getLogger("multiqc")
-
-
-def gen_line_data(base, variance):
-    return {
-        "Sample_A": {i: base + (i * 2) + random.uniform(-variance, variance) for i in range(1, 6)},
-        "Sample_B": {i: base + (i * 1.5) + random.uniform(-variance, variance) for i in range(1, 6)},
-        "Sample_C": {i: base - (i * 0.5) + random.uniform(-variance, variance) for i in range(1, 6)},
-    }
-
-
-def gen_scatter_data(base, variance):
-    return {
-        "Sample_A": {"x": 2 + random.uniform(-variance, variance), "y": 20 + random.uniform(-variance, variance)},
-        "Sample_B": {"x": 3 + random.uniform(-variance, variance), "y": 25 + random.uniform(-variance, variance)},
-        "Sample_C": {"x": 4 + random.uniform(-variance, variance), "y": 15 + random.uniform(-variance, variance)},
-    }
-
 
 class MultiqcModule(BaseMultiqcModule):
     """
@@ -62,21 +46,59 @@ class MultiqcModule(BaseMultiqcModule):
         # Find files using the custom search pattern added in custom_code
         files = list(self.find_log_files("harmonization_plotly"))
 
+        tsv_files = []
+        json_files = []
+        unknown_files = []
+        for f in files:
+            if f["fn"].endswith(".tsv"):
+                tsv_files.append(f)
+            elif f["fn"].endswith(".json"):
+                json_files.append(f)
+            else:
+                unknown_files.append(f)
+
+        if len(unknown_files) > 0:
+            log.warning(
+                f"Found {len(unknown_files)} files with unknown extension for harmonization_plotly module. "
+                f"Only .tsv and .json files are supported. Files: {[f['fn'] for f in unknown_files]}"
+            )
+
         # Nothing found - raise ModuleNoSamplesFound to tell MultiQC
         if len(files) == 0:
             log.debug(f"Could not find harmonization_plotly reports in {config.analysis_dir}")
             raise ModuleNoSamplesFound
 
-        df = load_sites_data(files)
+        self.df = load_sites_data(tsv_files)
+        
+        # Read plot data from JSON files and aggregate
+        self.plots_json = PlotJsonAggregator()
+        for jf in json_files:
+            pa = PlotJsonAggregator.from_json(jf["f"])
+            self.plots_json.add_plot_json_aggregator(pa)
+        
+        # Write the aggregated JSON file for reference
+        aggregated_json_path = os.path.join(config.output_dir, "harmonization_plotly_aggregated_plots.json")
+        with open(aggregated_json_path, 'w') as f:
+            json.dump(self.plots_json.aggregated_data, f, indent=4)
+        log.info(f"Aggregated plot JSON saved to {aggregated_json_path}")
 
-        # --- 3. Generate content for each tab ---
+        # Extract list of metrics and non-metric columns
+        bundles = list(self.df["roi"].unique())
+        headers = set(self.df.columns)
+        meta_columns = set(["site", "age", "sex", "handedness", "disease"])
+        non_metric_columns = set(["sample", "roi"]) | meta_columns
+        metric_columns = headers - non_metric_columns
+        # Filter metric_columns to keep only "fa, md, rd columns"
+        metric_columns = [m for m in metric_columns if m in ["fa", "md", "rd"]]
+
         is_first_tuple = True
         all_div_ids = []
         anchors = {}
         plots_html_content = ""
-        for bundle, metrics in df.items():
-            for metric, data in metrics.items():
-                html, plot_anchors, div_id = self.make_flex_row(data, bundle, metric, hidden=not is_first_tuple)
+        for bundle in bundles:
+            for metric in metric_columns:
+                log.info(f"Processing bundle: {bundle}, metric: {metric}")
+                html, plot_anchors, div_id = self.make_flex_row(bundle, metric, hidden=not is_first_tuple)
 
                 plots_html_content += html
 
@@ -91,18 +113,17 @@ class MultiqcModule(BaseMultiqcModule):
         html_bundle_options = "".join(
             [
                 f'<option value="{bundle}" {"selected" if i == 0 else ""}>{bundle}</option>'
-                for i, bundle in enumerate(metrics_bundles.keys())
+                for i, bundle in enumerate(bundles)
             ]
         )
         html_metric_options = "".join(
             [
                 f'<option value="{metric}" {"selected" if i == 0 else ""}>{metric}</option>'
-                for i, metric in enumerate(next(iter(metrics_bundles.values())).keys())
+                for i, metric in enumerate(metric_columns)
             ]
         )
-        default_bundle = list(metrics_bundles.keys())[0]
-        default_metric = list(next(iter(metrics_bundles.values())).keys())[0]
-
+        default_bundle = list(bundles)[0]
+        default_metric = list(metric_columns)[0]
         html_script = f"""
         <div class="d-flex justify-content-center gap-3">
             <select class="form-select w-auto" aria-label="Metric selection" onchange="showScenario(current_bundle, this.value)">
@@ -154,7 +175,7 @@ class MultiqcModule(BaseMultiqcModule):
         # MultiQC automatically creates tabs if you pass a dict to 'plot'
         self.add_section(name="Comparisons", anchor="my_comparison_section", content=html_content)
 
-    def make_flex_row(self, plot_data_list, bundle, metric, hidden=False):
+    def make_flex_row(self, bundle, metric, hidden=False):
         div_id = f"{bundle.replace(' ', '-')}_{metric.replace(' ', '-')}"
         # Generate the 3 individual plots
         # Note: Use unique IDs to prevent DOM conflicts!
@@ -178,20 +199,6 @@ class MultiqcModule(BaseMultiqcModule):
             div_id,
         )
 
-    def create_datamodel_figure(self, bundle, metric):
-        """Create a DataModel figure to visualize the data."""
-        logging.info(f"Creating DataModel figure for bundle: {bundle}, metric: {metric}")
-        # data = self._get_data(bundle, metric, "HC")
-        pass
-
-    def create_agecurve_raw_figure(self, bundle, metric):
-        """Create a AgeCurve Raw figure to visualize the data."""
-        pass
-
-    def create_agecurve_harmonized_figure(self, bundle, metric):
-        """Create a AgeCurve Harmonized figure to visualize the data."""
-        pass
-
     def _get_data(self, bundle, metric, disease=None) -> Dict[str, Any]:
         """Get example data for plotting."""
         data = self.rois_metrics_data[bundle][metric]
@@ -204,75 +211,89 @@ class MultiqcModule(BaseMultiqcModule):
             data["values"] = [data["values"][i] for i in indices]
 
         return data
+    
+    ########################################
+    # DataModel plot
+    ########################################
+    def create_datamodel_figure(self, bundle, metric):
+        fig = go.Figure()
 
-    def _parse_tsv_file(self, f) -> Dict[str, Any]:
-        """Parse a TSV file and return its contents as a dictionary."""
-        data = defaultdict(lambda: defaultdict(dict))
-        meta = defaultdict(dict)
-        # data = {
-        #     "sub-01": {
-        #         "roi_1": {
-        #             "FA": 0.45,
-        #             "MD": 0.0008
-        #         },
-        #         "roi_2": {
-        #             "FA": 0.50,
-        #             "MD": 0.0007
-        #         }
-        #     },
-        #     "sub-02": {
-        #         "roi_1": {
-        #             "FA": 0.47,
-        #             "MD": 0.0009
-        #         },
-        #         "roi_2": {
-        #             "FA": 0.52,
-        #             "MD": 0.0006
-        #         }
-        #     }
-        # }
+        data = self.df[self.df["roi"] == bundle]
 
-        file_content = f.get("f", "").splitlines()
-        reader = csv.DictReader(file_content, delimiter="\t")
-        headers = set(reader.fieldnames)
+        # Add scatterplot of data
+        fig.add_trace(
+            go.Scatter(
+                x=data["age"],
+                y=data[metric],
+                mode="markers",
+                text=data["sample"]
+            )
+        )
 
-        meta_columns = set(["site", "age", "handedness", "disease"])
-        non_metric_columns = set(["sample", "roi"]) | meta_columns
-        metric_columns = headers - non_metric_columns
-        for row in reader:
-            sample = row["sample"]
-            roi = row["roi"]
+        # Add reference regression line which was calculated by Clinical-Combat
+        plot_json = self.plots_json.data[bundle][metric]
+        ref_y = plot_json["regression_reference"]["data_y"]
+        fig.add_trace(
+            go.Scatter(
+                x=data["age"],
+                y=ref_y,
+                mode="lines",
+                name=f"Reference ({plot_json['regression_reference']['site']})",
+                line=dict(color="red", dash="dash"),
+            )
+        )
 
-            if not meta.get(sample, None):
-                # Use dict comprehension to populate meta information
-                meta[sample] = {col: row[col] for col in meta_columns}
+        mov_y = plot_json["regression_moving"]["data_y"]
+        fig.add_trace(
+            go.Scatter(
+                x=data["age"],
+                y=mov_y,
+                mode="lines",
+                name=f"Moving ({plot_json['regression_moving']['site']}))",
+                line=dict(color="blue", dash="dash"),
+            )
+        )
 
-            for metric in metric_columns:
-                value = float(row[metric])
-                data[roi][metric][sample] = value
+        return pio.to_html(fig, full_html=False, include_plotlyjs=False), f"datamodel_{bundle}_{metric}"
+    
+    ########################################
+    # AgeCurve Raw plot
+    ########################################
+    def create_agecurve_raw_figure(self, bundle, metric):
+        """Create a AgeCurve Raw figure to visualize the data."""
+        fig = go.Figure()
 
-        # Wrote the meta to a meta.json file
-        with open("C:\\Users\\jerem\\Documents\\multiqc\\MultiQC_neuroimaging\\meta.json", "w") as meta_file:
-            json.dump(dict(meta), meta_file, indent=4)
+        data = self.df[self.df["roi"] == bundle]
 
-        # Wrote the data to a data.json file
-        with open("C:\\Users\\jerem\\Documents\\multiqc\\MultiQC_neuroimaging\\data.json", "w") as data_file:
-            json.dump(dict(data), data_file, indent=4)
+        # Add scatterplot of data
+        fig.add_trace(
+            go.Scatter(
+                x=data["age"],
+                y=data[metric],
+                mode="markers",
+                text=data["sample"]
+            )
+        )
 
-        rois_metrics_data = {}
-        for roi, metrics in data.items():
-            for metric, samples in metrics.items():
-                roi_metric_data = {"samples": [], "ages": [], "values": []}
-                for sample in samples.keys():
-                    roi_metric_data["samples"].append(sample)
-                    roi_metric_data["ages"].append(meta[sample]["age"])
-                    roi_metric_data["values"].append(samples[sample])
+        return pio.to_html(fig, full_html=False, include_plotlyjs=False), f"age_curve_raw_{bundle}_{metric}"
 
-                rois_metrics_data.setdefault(roi, {})[metric] = roi_metric_data
+    ########################################
+    # AgeCurve Harmonized plot
+    ########################################
+    def create_agecurve_harmonized_figure(self, bundle, metric):
+        """Create a AgeCurve Harmonized figure to visualize the data."""
+        fig = go.Figure()
 
-        with open(
-            "C:\\Users\\jerem\\Documents\\multiqc\\MultiQC_neuroimaging\\plot_ready_data.json", "w"
-        ) as plot_ready_file:
-            json.dump(dict(rois_metrics_data), plot_ready_file, indent=4)
+        data = self.df[self.df["roi"] == bundle]
 
-        return dict(meta), dict(data), dict(rois_metrics_data)
+        # Add scatterplot of data
+        fig.add_trace(
+            go.Scatter(
+                x=data["age"],
+                y=data[metric],
+                mode="markers",
+                text=data["sample"]
+            )
+        )
+
+        return pio.to_html(fig, full_html=False, include_plotlyjs=False), f"agecurve_harmonized_{bundle}_{metric}"

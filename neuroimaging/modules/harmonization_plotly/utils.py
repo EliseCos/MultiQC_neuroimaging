@@ -1,5 +1,5 @@
 import pandas as pd
-from string import StringIO
+from io import StringIO
 
 def load_sites_data(files) -> pd.DataFrame:
     """Parse a TSV file and return its contents as a dictionary."""

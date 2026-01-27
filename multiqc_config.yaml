@@ -87,3 +87,5 @@ sp:
   harmonization_plotly:
     - fn: "*.harmonized.tsv"
       shared: true
+    - fn: "DataModels_*.json"
+      shared: true

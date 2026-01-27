@@ -32,7 +32,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Visualization",
 ]
 dependencies = [
-    "multiqc"
+    "multiqc", "pandas", "plotly"
 ]
 
 [tool.setuptools]
@@ -42,6 +42,8 @@ packages = [
     "neuroimaging.modules.tractometry",
     "neuroimaging.modules.metricsinroi",
     "neuroimaging.modules.metricsinroi_harmonized",
+    "neuroimaging.modules.harmonization_plotly",
+    "neuroimaging.modules.harmonization",
     "neuroimaging.modules.cortical",
     "neuroimaging.modules.subcortical",
     "neuroimaging.modules.framewise_displacement",
