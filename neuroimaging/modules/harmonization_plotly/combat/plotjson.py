@@ -62,10 +62,15 @@ class PlotJsonAggregator:
     @classmethod
     def from_json(cls, json_data: str):
         aggregator = cls()
-        data = json.loads(json_data)
-        for bundle, metrics in data.items():
-            for metric, plots in metrics.items():
-                aggregator.aggregated_data[bundle][metric] = plots
+
+        if not isinstance(json_data, list):
+            json_data = [json_data]
+
+        for j in json_data:
+            data = json.loads(j)
+            for bundle, metrics in data.items():
+                for metric, plots in metrics.items():
+                    aggregator.aggregated_data[bundle][metric] = plots
         return aggregator
 
     def add_plot_json(self, plot_json: PlotJson):

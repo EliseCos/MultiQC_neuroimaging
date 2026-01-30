@@ -5,6 +5,7 @@ import csv
 import logging
 from typing import Dict, Any
 from collections import defaultdict
+import itertools
 
 import numpy as np
 
@@ -19,9 +20,9 @@ import random
 import json
 import pandas as pd
 
-from .utils import load_sites_data
+from .utils import load_sites_data, PALETTE, to_plotly_rgb
 
-from .combat.plotjson import PlotJson, PlotJsonAggregator
+from .combat.plotjson import PlotJsonAggregator
 
 # Initialise the main MultiQC logger
 log = logging.getLogger("multiqc")
@@ -30,6 +31,11 @@ class MultiqcModule(BaseMultiqcModule):
     """
     This section aims to visualize the result of the harmonization_plotly process.
     """
+    REF_STATS_SP_KEY            = "harmonization_plotly/reference_stats"
+    RAW_STATS_SP_KEY            = "harmonization_plotly/raw_stats"
+    HARMONIZED_STATS_SP_KEY     = "harmonization_plotly/harmonized_stats"
+    DATA_MODELS_PLOTS_SP_KEY    = "harmonization_plotly/data_models_plots"
+    HARMONIZATION_PLOTS_SP_KEY  = "harmonization_plotly/harmonization_plots"
 
     def __init__(self):
         super(MultiqcModule, self).__init__(
@@ -38,58 +44,70 @@ class MultiqcModule(BaseMultiqcModule):
             href="https://github.com/nf-neuro/MultiQC_neuroimaging",
             info=self.__doc__,
         )
-        log.info
+
         # Halt execution if single-subject mode is enabled
         if config.kwargs.get("single_subject", False):
             raise ModuleNoSamplesFound
 
-        # Find files using the custom search pattern added in custom_code
-        files = list(self.find_log_files("harmonization_plotly"))
-
-        tsv_files = []
-        json_files = []
-        unknown_files = []
-        for f in files:
-            if f["fn"].endswith(".tsv"):
-                tsv_files.append(f)
-            elif f["fn"].endswith(".json"):
-                json_files.append(f)
-            else:
-                unknown_files.append(f)
-
-        if len(unknown_files) > 0:
-            log.warning(
-                f"Found {len(unknown_files)} files with unknown extension for harmonization_plotly module. "
-                f"Only .tsv and .json files are supported. Files: {[f['fn'] for f in unknown_files]}"
-            )
+        # Load the reference stats file (useful to plot the reference scatterplot)
+        ref_stats_file            = list(self.find_log_files(self.REF_STATS_SP_KEY))
+        raw_stats_files           = list(self.find_log_files(self.RAW_STATS_SP_KEY))
+        harmonized_stats_files    = list(self.find_log_files(self.HARMONIZED_STATS_SP_KEY))
+        data_model_plots_files    = list(self.find_log_files(self.DATA_MODELS_PLOTS_SP_KEY))
+        harmonization_plots_files = list(self.find_log_files(self.HARMONIZATION_PLOTS_SP_KEY))
 
         # Nothing found - raise ModuleNoSamplesFound to tell MultiQC
-        if len(files) == 0:
+        if len(harmonized_stats_files) == 0:
             log.debug(f"Could not find harmonization_plotly reports in {config.analysis_dir}")
             raise ModuleNoSamplesFound
 
-        self.df = load_sites_data(tsv_files)
+        self.ref_df        = load_sites_data(ref_stats_file)
+        self.raw_df        = load_sites_data(raw_stats_files)
+        self.harmonized_df = load_sites_data(harmonized_stats_files)
         
         # Read plot data from JSON files and aggregate
-        self.plots_json = PlotJsonAggregator()
-        for jf in json_files:
-            pa = PlotJsonAggregator.from_json(jf["f"])
-            self.plots_json.add_plot_json_aggregator(pa)
+        self.data_model_json    = PlotJsonAggregator.from_json(list(map(lambda f: f["f"], data_model_plots_files)))
+        self.harmonization_json = PlotJsonAggregator.from_json(list(map(lambda f: f["f"], harmonization_plots_files)))
         
         # Write the aggregated JSON file for reference
-        aggregated_json_path = os.path.join(config.output_dir, "harmonization_plotly_aggregated_plots.json")
+        aggregated_json_path = os.path.join(config.output_dir, "datamodels_aggregated.json")
         with open(aggregated_json_path, 'w') as f:
-            json.dump(self.plots_json.aggregated_data, f, indent=4)
+            json.dump(self.data_model_json.aggregated_data, f, indent=4)
+        log.info(f"Aggregated plot JSON saved to {aggregated_json_path}")
+
+        aggregated_json_path = os.path.join(config.output_dir, "harmonization_aggregated.json")
+        with open(aggregated_json_path, 'w') as f:
+            json.dump(self.harmonization_json.aggregated_data, f, indent=4)
         log.info(f"Aggregated plot JSON saved to {aggregated_json_path}")
 
         # Extract list of metrics and non-metric columns
-        bundles = list(self.df["roi"].unique())
-        headers = set(self.df.columns)
+        bundles = list(self.harmonized_df["roi"].unique())[:2]
+        headers = set(self.harmonized_df.columns)
         meta_columns = set(["site", "age", "sex", "handedness", "disease"])
         non_metric_columns = set(["sample", "roi"]) | meta_columns
         metric_columns = headers - non_metric_columns
         # Filter metric_columns to keep only "fa, md, rd columns"
-        metric_columns = [m for m in metric_columns if m in ["fa", "md", "rd"]]
+        metric_columns = [m for m in metric_columns if m in ["fa", "md"]]
+
+        # Verify that the raw_df and harmonized_df have the same samples
+        assert set(self.raw_df["sample"]) == set(self.harmonized_df["sample"]), \
+            "The raw and harmonized data files must contain the same samples."
+        
+        # Verify that the raw and harmonized data have the same ROIs
+        assert set(self.raw_df["roi"]) == set(self.harmonized_df["roi"]), \
+            "The raw and harmonized data files must contain the same ROIs."
+        
+        # Verify that the dataframes and the jsons have the same ROIs and metrics
+        for bundle in bundles:
+            for metric in metric_columns:
+                assert bundle in self.data_model_json.data, \
+                    f"The bundle {bundle} is missing from the data model JSON."
+                assert metric in self.data_model_json.data[bundle], \
+                    f"The metric {metric} is missing from the data model JSON for bundle {bundle}."
+                # assert bundle in self.harmonization_json.data, \
+                #     f"The bundle {bundle} is missing from the harmonization JSON."
+                # assert metric in self.harmonization_json.data[bundle], \
+                #     f"The metric {metric} is missing from the harmonization JSON for bundle {bundle}."
 
         is_first_tuple = True
         all_div_ids = []
@@ -184,15 +202,16 @@ class MultiqcModule(BaseMultiqcModule):
         p1_html, p1_anchor = self.create_datamodel_figure(bundle, metric)
         p2_html, p2_anchor = self.create_agecurve_raw_figure(bundle, metric)
         p3_html, p3_anchor = self.create_agecurve_harmonized_figure(bundle, metric)
+        # p4_html, p4_anchor = self.create_battacharia_figure(bundle, metric)
 
         plot_anchors = [p1_anchor, p2_anchor, p3_anchor]
 
         return (
             f"""
-        <div id="{div_id}" style="display: {"none" if hidden else "flex"}; flex-direction: row; justify-content: space-between;">
-            <div style="width: 32%;">{p1_html}</div>
-            <div style="width: 32%;">{p2_html}</div>
-            <div style="width: 32%;">{p3_html}</div>
+        <div id="{div_id}" style="width: 90%; display: {"none" if hidden else "flex"}; flex-direction: row; justify-content: space-between;">
+            <div style="width:100%; margin: 0 auto;">{p1_html}</div>
+            <div style="width:100%; margin: 0 auto;">{p2_html}</div>
+            <div style="width:100%; margin: 0 auto;">{p3_html}</div>
         </div>
         """,
             {"plot_anchors": plot_anchors, "div_id": div_id},
@@ -218,40 +237,83 @@ class MultiqcModule(BaseMultiqcModule):
     def create_datamodel_figure(self, bundle, metric):
         fig = go.Figure()
 
-        data = self.df[self.df["roi"] == bundle]
+        ref_data = self.ref_df[self.ref_df["roi"] == bundle]
+        raw_data = self.raw_df[self.raw_df["roi"] == bundle]
 
-        # Add scatterplot of data
+        plot_json = self.data_model_json.data[bundle][metric]
+        ref_color = to_plotly_rgb(plot_json["regression_reference"]["color"]) \
+            if "regression_reference" in plot_json and "color" in plot_json["regression_reference"] else PALETTE[0]
+        moving_color = to_plotly_rgb(plot_json["regression_moving"]["color"]) \
+            if "regression_moving" in plot_json and "color" in plot_json["regression_moving"] else PALETTE[1]
+        
+        reference_name = f"{plot_json['regression_reference']['site']} (reference)"
+        moving_name = f"{plot_json['regression_moving']['site']} (moving)"
+
+        # Add reference scatterplot of data
         fig.add_trace(
             go.Scatter(
-                x=data["age"],
-                y=data[metric],
+                x=ref_data["age"],
+                y=ref_data[metric],
                 mode="markers",
-                text=data["sample"]
+                text=ref_data["sample"],
+                marker=dict(color=ref_color),
+                name=reference_name,
+                legendgroup="reference_group"
+            )
+        )
+
+        # Add (raw) moving scatter
+        fig.add_trace(
+            go.Scatter(
+                x=raw_data["age"],
+                y=raw_data[metric],
+                mode="markers",
+                text=raw_data["sample"],
+                marker=dict(color=moving_color),
+                name=moving_name,
+                legendgroup="moving_group"
             )
         )
 
         # Add reference regression line which was calculated by Clinical-Combat
-        plot_json = self.plots_json.data[bundle][metric]
+        ref_x = plot_json["regression_reference"]["data_x"]
         ref_y = plot_json["regression_reference"]["data_y"]
         fig.add_trace(
             go.Scatter(
-                x=data["age"],
+                x=ref_x,
                 y=ref_y,
                 mode="lines",
-                name=f"Reference ({plot_json['regression_reference']['site']})",
-                line=dict(color="red", dash="dash"),
+                name=reference_name + " - regression",
+                line=dict(color=ref_color),
+                legendgroup="reference_group",
+                showlegend=False
             )
         )
 
+        mov_x = plot_json["regression_moving"]["data_x"]
         mov_y = plot_json["regression_moving"]["data_y"]
         fig.add_trace(
             go.Scatter(
-                x=data["age"],
+                x=mov_x,
                 y=mov_y,
                 mode="lines",
-                name=f"Moving ({plot_json['regression_moving']['site']}))",
-                line=dict(color="blue", dash="dash"),
+                name=moving_name + " - regression",
+                line=dict(color=moving_color),
+                legendgroup="moving_group",
+                showlegend=False
             )
+        )
+
+        fig.update_layout(
+            title_text="Data Model",
+            title_subtitle_text=f"Bundle {bundle} | Metric: {metric}",
+            title_x=0.5,
+            xaxis_title_text="Age",
+            yaxis_title_text=metric,
+            legend_yanchor="auto",
+            legend_xanchor="auto",
+            legend_x=0,
+            legend_y=0
         )
 
         return pio.to_html(fig, full_html=False, include_plotlyjs=False), f"datamodel_{bundle}_{metric}"
@@ -263,16 +325,128 @@ class MultiqcModule(BaseMultiqcModule):
         """Create a AgeCurve Raw figure to visualize the data."""
         fig = go.Figure()
 
-        data = self.df[self.df["roi"] == bundle]
+        plot_json = self.harmonization_json.data[bundle][metric]
 
-        # Add scatterplot of data
+        ############################
+        # Reference percentiles
+        ############################
+        reference_percentile_plots = plot_json['reference_percentiles']
+
+        # Extract the percentile curves dict keys ordered by percentile number.
+        ref_percentile_plots = [k for k in reference_percentile_plots.keys()]
+        ref_percentiles = [v["percentile"] for v in reference_percentile_plots.values()]
+        ref_available_percentiles = [p for _, p in sorted(zip(ref_percentiles, ref_percentile_plots))]
+
+        # Make sure the number of percentiles is odd to have a middle one
+        if len(ref_available_percentiles) % 2 == 0:
+            raise ValueError("The number of percentiles must be odd to have a main/mean percentile.")
+
+        ref_middle = len(ref_available_percentiles) // 2
+        ref_other_percentiles = ref_available_percentiles[:ref_middle] + ref_available_percentiles[ref_middle+1:]
+
+        # Make sure the 5th percentile is matched with the 95th, 10th with 90th, etc.
+        for i in range(len(ref_other_percentiles)//2):
+            p1_name = ref_other_percentiles[i]
+            p2_name = ref_other_percentiles[-(i+1)]
+
+            p1 = reference_percentile_plots[p1_name]
+            p2 = reference_percentile_plots[p2_name]
+            
+            # We need to fill the area between p1 and p2
+            fig.add_trace(
+                go.Scatter(
+                    x=p1['data_x'] + p2['data_x'][::-1],
+                    y=p1['data_y'] + p2['data_y'][::-1],
+                    fill='toself',
+                    fillcolor=p1["color"],
+                    line=dict(color='rgba(255,255,255,0)'),
+                    name=f"Reference {p1['percentile']}th - {p2['percentile']}th percentile",
+                    legendgroup="reference_percentiles",
+                    showlegend=False,
+                    opacity=0.2
+                )
+            )
+
+        ############################
+        # Moving percentiles
+        ############################
+        moving_percentile_plots = plot_json['moving_raw_percentiles']
+
+        # Extract the percentile curves dict keys ordered by percentile number.
+        mov_percentile_plots = [k for k in moving_percentile_plots.keys()]
+        mov_percentiles = [v["percentile"] for v in moving_percentile_plots.values()]
+        mov_available_percentiles = [p for _, p in sorted(zip(mov_percentiles, mov_percentile_plots))]
+
+        # Make sure the number of percentiles is odd to have a middle one
+        if len(mov_available_percentiles) % 2 == 0:
+            raise ValueError("The number of percentiles must be odd to have a main/mean percentile.")
+
+        mov_middle = len(mov_available_percentiles) // 2
+
+        mov_other_percentiles = mov_available_percentiles[:mov_middle] + mov_available_percentiles[mov_middle+1:]
+
+        # Make sure the 5th percentile is matched with the 95th, 10th with 90th, etc.
+        for i in range(len(mov_other_percentiles)//2):
+            p1_name = mov_other_percentiles[i]
+            p2_name = mov_other_percentiles[-(i+1)]
+
+            p1 = moving_percentile_plots[p1_name]
+            p2 = moving_percentile_plots[p2_name]
+            
+            # We need to fill the area between p1 and p2
+            fig.add_trace(
+                go.Scatter(
+                    x=p1['data_x'] + p2['data_x'][::-1],
+                    y=p1['data_y'] + p2['data_y'][::-1],
+                    fill='toself',
+                    fillcolor=p1["color"],
+                    line=dict(color='rgba(255,255,255,0)'),
+                    name=f"Moving {p1['percentile']}th - {p2['percentile']}th percentile",
+                    legendgroup="moving_percentiles",
+                    showlegend=False,
+                    opacity=0.2
+                )
+            )
+
+
+        ############################
+        # Median curves
+        ############################
+        # Plot the median curves last so they get drawn on top of the filled areas.
+        ref_median_curve = ref_available_percentiles[ref_middle]
         fig.add_trace(
             go.Scatter(
-                x=data["age"],
-                y=data[metric],
-                mode="markers",
-                text=data["sample"]
+                x=reference_percentile_plots[ref_median_curve]['data_x'],
+                y=reference_percentile_plots[ref_median_curve]['data_y'],
+                mode="lines",
+                name="Reference",
+                legendgroup="reference_percentiles",
+                line=dict(color=reference_percentile_plots[ref_median_curve]["color"], width=4),
             )
+        )
+
+        mov_median_curve = mov_available_percentiles[mov_middle]
+        fig.add_trace(
+            go.Scatter(
+                x=moving_percentile_plots[mov_median_curve]['data_x'],
+                y=moving_percentile_plots[mov_median_curve]['data_y'],
+                mode="lines",
+                name="Moving",
+                legendgroup="moving_percentiles",
+                line=dict(color=moving_percentile_plots[mov_median_curve]["color"], width=4),
+            )
+        )
+
+        fig.update_layout(
+            title_text="Pre-Harmonization",
+            title_subtitle_text=f"Bundle {bundle} | Metric: {metric}",
+            title_x=0.5,
+            xaxis_title_text="Age",
+            yaxis_title_text=metric,
+            legend_yanchor="auto",
+            legend_xanchor="auto",
+            legend_x=0,
+            legend_y=0
         )
 
         return pio.to_html(fig, full_html=False, include_plotlyjs=False), f"age_curve_raw_{bundle}_{metric}"
@@ -284,16 +458,128 @@ class MultiqcModule(BaseMultiqcModule):
         """Create a AgeCurve Harmonized figure to visualize the data."""
         fig = go.Figure()
 
-        data = self.df[self.df["roi"] == bundle]
+        plot_json = self.harmonization_json.data[bundle][metric]
 
-        # Add scatterplot of data
+        ############################
+        # Reference percentiles
+        ############################
+        reference_percentile_plots = plot_json['reference_percentiles']
+
+        # Extract the percentile curves dict keys ordered by percentile number.
+        ref_percentile_plots = [k for k in reference_percentile_plots.keys()]
+        ref_percentiles = [v["percentile"] for v in reference_percentile_plots.values()]
+        ref_available_percentiles = [p for _, p in sorted(zip(ref_percentiles, ref_percentile_plots))]
+
+        # Make sure the number of percentiles is odd to have a middle one
+        if len(ref_available_percentiles) % 2 == 0:
+            raise ValueError("The number of percentiles must be odd to have a main/mean percentile.")
+
+        ref_middle = len(ref_available_percentiles) // 2
+        ref_other_percentiles = ref_available_percentiles[:ref_middle] + ref_available_percentiles[ref_middle+1:]
+
+        # Make sure the 5th percentile is matched with the 95th, 10th with 90th, etc.
+        for i in range(len(ref_other_percentiles)//2):
+            p1_name = ref_other_percentiles[i]
+            p2_name = ref_other_percentiles[-(i+1)]
+
+            p1 = reference_percentile_plots[p1_name]
+            p2 = reference_percentile_plots[p2_name]
+            
+            # We need to fill the area between p1 and p2
+            fig.add_trace(
+                go.Scatter(
+                    x=p1['data_x'] + p2['data_x'][::-1],
+                    y=p1['data_y'] + p2['data_y'][::-1],
+                    fill='toself',
+                    fillcolor=p1["color"],
+                    line=dict(color='rgba(255,255,255,0)'),
+                    name=f"Reference {p1['percentile']}th - {p2['percentile']}th percentile",
+                    legendgroup="reference_percentiles",
+                    showlegend=False,
+                    opacity=0.2
+                )
+            )
+
+        ############################
+        # Moving percentiles
+        ############################
+        moving_percentile_plots = plot_json['moving_harmonized_percentiles']
+
+        # Extract the percentile curves dict keys ordered by percentile number.
+        mov_percentile_plots = [k for k in moving_percentile_plots.keys()]
+        mov_percentiles = [v["percentile"] for v in moving_percentile_plots.values()]
+        mov_available_percentiles = [p for _, p in sorted(zip(mov_percentiles, mov_percentile_plots))]
+
+        # Make sure the number of percentiles is odd to have a middle one
+        if len(mov_available_percentiles) % 2 == 0:
+            raise ValueError("The number of percentiles must be odd to have a main/mean percentile.")
+
+        mov_middle = len(mov_available_percentiles) // 2
+
+        mov_other_percentiles = mov_available_percentiles[:mov_middle] + mov_available_percentiles[mov_middle+1:]
+
+        # Make sure the 5th percentile is matched with the 95th, 10th with 90th, etc.
+        for i in range(len(mov_other_percentiles)//2):
+            p1_name = mov_other_percentiles[i]
+            p2_name = mov_other_percentiles[-(i+1)]
+
+            p1 = moving_percentile_plots[p1_name]
+            p2 = moving_percentile_plots[p2_name]
+            
+            # We need to fill the area between p1 and p2
+            fig.add_trace(
+                go.Scatter(
+                    x=p1['data_x'] + p2['data_x'][::-1],
+                    y=p1['data_y'] + p2['data_y'][::-1],
+                    fill='toself',
+                    fillcolor=p1["color"],
+                    line=dict(color='rgba(255,255,255,0)'),
+                    name=f"Moving {p1['percentile']}th - {p2['percentile']}th percentile",
+                    legendgroup="moving_percentiles",
+                    showlegend=False,
+                    opacity=0.2
+                )
+            )
+
+
+        ############################
+        # Median curves
+        ############################
+        # Plot the median curves last so they get drawn on top of the filled areas.
+        ref_median_curve = ref_available_percentiles[ref_middle]
         fig.add_trace(
             go.Scatter(
-                x=data["age"],
-                y=data[metric],
-                mode="markers",
-                text=data["sample"]
+                x=reference_percentile_plots[ref_median_curve]['data_x'],
+                y=reference_percentile_plots[ref_median_curve]['data_y'],
+                mode="lines",
+                name="Reference",
+                legendgroup="reference_percentiles",
+                line=dict(color=reference_percentile_plots[ref_median_curve]["color"], width=4),
             )
+        )
+
+        mov_median_curve = mov_available_percentiles[mov_middle]
+        fig.add_trace(
+            go.Scatter(
+                x=moving_percentile_plots[mov_median_curve]['data_x'],
+                y=moving_percentile_plots[mov_median_curve]['data_y'],
+                mode="lines",
+                name="Moving",
+                legendgroup="moving_percentiles",
+                line=dict(color=moving_percentile_plots[mov_median_curve]["color"], width=4),
+            )
+        )
+
+        fig.update_layout(
+            title_text="Post-Harmonization",
+            title_subtitle_text=f"Bundle {bundle} | Metric: {metric}",
+            title_x=0.5,
+            xaxis_title_text="Age",
+            yaxis_title_text=metric,
+            legend_yanchor="auto",
+            legend_xanchor="auto",
+            legend_x=0,
+            legend_y=0
         )
 
         return pio.to_html(fig, full_html=False, include_plotlyjs=False), f"agecurve_harmonized_{bundle}_{metric}"

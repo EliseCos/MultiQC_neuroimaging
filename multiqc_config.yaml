@@ -72,20 +72,27 @@ sp:
     fn: "*streamline_count.tsv"
   tractometry:
     fn: "*bundles_mean_stats.tsv"
+    shared: true
   cortical/volume:
     fn: "cortical_*_volume_*.tsv"
   subcortical/volume:
     fn: "subcortical_*_volume_*.tsv"
   metricsinroi:
-    fn: "rois_mean_stats.tsv"
-  metricsinroi_harmonized:
-    - fn: "*.harmonized.tsv"
+    fn: "*mean_desc-roi_stats.tsv"
+    shared: true
+  harmonization_plotly/reference_stats:
+    fn: "*.reference.tsv"
+  harmonization_plotly/harmonized_stats:
+    fn: "*.harmonized.tsv"
+    shared: true
+  harmonization_plotly/raw_stats:
+    - fn: "*mean_desc-roi_stats.tsv"
       shared: true
-  harmonization:
-    - fn: "*.harmonized.tsv"
+    - fn: "*bundles_mean_stats.tsv"
       shared: true
-  harmonization_plotly:
-    - fn: "*.harmonized.tsv"
-      shared: true
-    - fn: "DataModels_*.json"
-      shared: true
+  harmonization_plotly/data_models_plots:
+    fn: "DataModels*.json"
+    shared: true
+  harmonization_plotly/harmonization_plots:
+    fn: "AgeCurve*.json"
+    shared: true
