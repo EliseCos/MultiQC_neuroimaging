@@ -96,3 +96,6 @@ sp:
   harmonization_plotly/harmonization_plots:
     fn: "AgeCurve*.json"
     shared: true
+  harmonization_plotly/harmonization_distance:
+    fn: "*.bhattacharrya.txt"
+    shared: true
