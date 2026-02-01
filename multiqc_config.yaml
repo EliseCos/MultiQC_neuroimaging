@@ -80,22 +80,18 @@ sp:
   metricsinroi:
     fn: "*mean_desc-roi_stats.tsv"
     shared: true
-  harmonization_plotly/reference_stats:
+  harmonization/reference_stats:
     fn: "*.reference.tsv"
-  harmonization_plotly/harmonized_stats:
+  harmonization/harmonized_stats:
     fn: "*.harmonized.tsv"
-    shared: true
-  harmonization_plotly/raw_stats:
+  harmonization/raw_stats:
     - fn: "*mean_desc-roi_stats.tsv"
       shared: true
     - fn: "*bundles_mean_stats.tsv"
       shared: true
-  harmonization_plotly/data_models_plots:
+  harmonization/data_models_plots:
     fn: "DataModels*.json"
-    shared: true
-  harmonization_plotly/harmonization_plots:
+  harmonization/harmonization_plots:
     fn: "AgeCurve*.json"
-    shared: true
-  harmonization_plotly/harmonization_distance:
+  harmonization/harmonization_distance:
     fn: "*.bhattacharrya.txt"
-    shared: true

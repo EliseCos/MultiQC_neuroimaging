@@ -69,8 +69,41 @@ def neuroimaging_execution_start():
     if "metricsinroi" not in config.sp:
         config.update_dict(config.sp, {"metricsinroi": {"fn": "rois_mean_stats.tsv"}})
 
-    # Metricsinroi_harmonized search pattern
-    if "metricsinroi_harmonized" not in config.sp:
-        config.update_dict(config.sp, {"metricsinroi_harmonized": {"fn": "*.harmonized.tsv"}})
-
+    if "harmonization/reference_stats" not in config.sp:
+        config.update_dict(
+            config.sp,
+            {"harmonization/reference_stats": {"fn": "*.reference.tsv"}},
+        )
     
+    if "harmonization/harmonized_stats" not in config.sp:
+        config.update_dict(
+            config.sp,
+            {"harmonization/harmonized_stats": {"fn": "*.harmonized.tsv"}},
+        )
+    if "harmonization/raw_stats" not in config.sp:
+        config.update_dict(
+            config.sp,
+            {
+                "harmonization/raw_stats": [
+                    {"fn": "*mean_desc-roi_stats.tsv", "shared": True},
+                    {"fn": "*bundles_mean_stats.tsv", "shared": True},
+                ]
+            },
+        )
+    if "harmonization/data_models_plots" not in config.sp:
+        config.update_dict(
+            config.sp,
+            {"harmonization/data_models_plots": {"fn": "DataModels*.json"}},
+        )
+    
+    if "harmonization/harmonization_plots" not in config.sp:
+        config.update_dict(
+            config.sp,
+            {"harmonization/harmonization_plots": {"fn": "AgeCurve*.json"}},
+        )
+    
+    if "harmonization/harmonization_distance" not in config.sp:
+        config.update_dict(
+            config.sp,
+            {"harmonization/harmonization_distance": {"fn": "*.bhattacharrya.txt"}},
+        )

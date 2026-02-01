@@ -1,7 +1,7 @@
 """
 Mostly used to visualize the harmonization results simply in
-QC reports, we provide this class which saves inputs of plots
-in a single JSON file.
+QC reports, we provide this class which saves/load inputs of
+plots in a single JSON file.
 """
 
 import json

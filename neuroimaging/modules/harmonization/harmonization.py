@@ -1,230 +1,116 @@
 """MultiQC module for harmonization results."""
 
 import os
-import csv
 import logging
-from typing import Dict, Any
+import json
 from collections import defaultdict
-
-import numpy as np
 
 from multiqc import config
 from multiqc.base_module import BaseMultiqcModule, ModuleNoSamplesFound
-from multiqc.plots import linegraph, bargraph, scatter
-import plotly.express as px
 import plotly.io as pio
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
-import random
-import json
+
+from .utils import load_sites_data, PALETTE, to_plotly_rgb
+from .plotjson import PlotJsonAggregator
 
 # Initialise the main MultiQC logger
 log = logging.getLogger("multiqc")
 
-pconfig = {
-    # Building the plot
-    "id": "scatter_1",  # HTML ID used for plot
-    # "categories": False,         # Set to True to use x values as categories instead of numbers.
-    # "colors": dict(),            # Provide dict with keys = sample names and values colours
-    # "smooth_points": None,       # Supply a number to limit number of points / smooth data
-    # "smooth_points_sumcounts": True,  # Sum counts in bins, or average? Can supply list for multiple datasets
-    # "logswitch": False,          # Show the 'Log10' switch?
-    # "logswitch_active": False,   # Initial display with 'Log10' active?
-    # "logswitch_label": "Log10",  # Label for 'Log10' button
-    # "axis_controlled_by_switches": ["yaxis"], # Which axes should be impacted by the switch button (one or both of xaxis, yaxis)
-    # "extra_series": None,        # See section below
-    # # Plot configuration
-    "title": "Harmonization: Clinical combat distributional results",  # Plot title - should be in format "Module Name: Plot Title"
-    # "xlab": None,                # X axis label
-    # "ylab": None,                # Y axis label
-    # "xmax": None,                # Hard max x limit
-    # "xmin": None,                # Hard min x limit
-    # "ymax": None,                # Hard max y limit
-    # "ymin": None,                # Hard min y limit
-    # "x_clipmax": None,           # Max value allowed for automatic axis limit
-    # "x_clipmin": None,           # Min value allowed for automatic axis limit
-    # "y_clipmax": None,           # Max value allowed for automatic axis limit
-    # "y_clipmin": None,           # Min value allowed for automatic axis limit
-    # "x_minrange": None,          # Min range for x-axis (5 would allow 0..5, but also 15..20, etc.)
-    # "y_minrange": None,          # Min range for y-axis (5 would allow 0..5, but also 15..20, etc.)
-    # "xlog": False,               # Use log10 for the x-axis
-    # "ylog": False,               # Use log10 scale for the y-axis
-    # "y_bands": None,             # Horizontal colored background bands
-    # "x_bands": None,             # Vertical colored background bands
-    # "y_lines": None,             # Extra horizontal lines
-    # "x_lines": None,             # Extra vertical lines
-    # "xsuffix": "%",              # Suffix for the X-axis values and labels. Parsed from tt_label by default
-    # "ysuffix": "%",              # Suffix for the Y-axis values and labels. Parsed from tt_label by default
-    # "tt_label": "{x}: {y:.2f}",  # Customise tooltip label, e.g. '{point.x} base pairs'
-    # "tt_decimals": None,         # Tooltip decimals when categories = True (when false use tt_label)
-    # "height": 500,               # The default height of the plot, in pixels
-    # "style": "line",             # The style of the line. Can be "line" or "lines+markers"
-    # "square": False,             # Force the plot to stay square? (Maintain aspect ratio)
-}
-
-
-def gen_line_data(base, variance):
-    return {
-        "Sample_A": {i: base + (i * 2) + random.uniform(-variance, variance) for i in range(1, 6)},
-        "Sample_B": {i: base + (i * 1.5) + random.uniform(-variance, variance) for i in range(1, 6)},
-        "Sample_C": {i: base - (i * 0.5) + random.uniform(-variance, variance) for i in range(1, 6)},
-    }
-
-
-def gen_scatter_data(base, variance):
-    return {
-        "Sample_A": {"x": 2 + random.uniform(-variance, variance), "y": 20 + random.uniform(-variance, variance)},
-        "Sample_B": {"x": 3 + random.uniform(-variance, variance), "y": 25 + random.uniform(-variance, variance)},
-        "Sample_C": {"x": 4 + random.uniform(-variance, variance), "y": 15 + random.uniform(-variance, variance)},
-    }
-
-
 class MultiqcModule(BaseMultiqcModule):
     """
-    This section aims to visualize the result of the harmonization process.
+    This section contains several graphs to visualize the results of the harmonization
+    procedure (e.g. using Clinical-Combat). The graphs include data model plots, which
+    we use to visualize a scatter plot and a regression line of the reference and moving
+    sites, before harmonization. We also include pre and post-harmonization age curves
+    to visualize how the data distributions change after harmonization. The user should
+    make sure that the post-harmonization age curves of the moving site better align with
+    the reference age curves.
+
+    Two dropdown menus are provided below the first subsection to allow the user to select
+    the bundle and metric of interest to visualize the corresponding plots.
+
+    Note: since this section requires features unsupported by the MultiQC native plotting
+    library (e.g. filled areas between curves), we use Plotly to generate the plots. Thus,
+    the sample highlighting features of MultiQC won't be available.
     """
+    REF_STATS_SP_KEY            = "harmonization/reference_stats"
+    RAW_STATS_SP_KEY            = "harmonization/raw_stats"
+    HARMONIZED_STATS_SP_KEY     = "harmonization/harmonized_stats"
+    DATA_MODELS_PLOTS_SP_KEY    = "harmonization/data_models_plots"
+    HARMONIZATION_PLOTS_SP_KEY  = "harmonization/harmonization_plots"
+    HARMONIZATION_DISTANCE_SP_KEY  = "harmonization/harmonization_distance"
 
     def __init__(self):
         super(MultiqcModule, self).__init__(
-            name="Harmonization distribution results",
+            name="Harmonization results",
             anchor="harmonization",
             href="https://github.com/nf-neuro/MultiQC_neuroimaging",
-            info=self.__doc__,
+            info=MultiqcModule.__doc__,
         )
 
         # Halt execution if single-subject mode is enabled
         if config.kwargs.get("single_subject", False):
             raise ModuleNoSamplesFound
 
-        # Find files using the custom search pattern added in custom_code
-        files = list(self.find_log_files("harmonization"))
+        # Load the reference stats file (useful to plot the reference scatterplot)
+        ref_stats_file            = list(self.find_log_files(self.REF_STATS_SP_KEY))
+        raw_stats_files           = list(self.find_log_files(self.RAW_STATS_SP_KEY))
+        harmonized_stats_files    = list(self.find_log_files(self.HARMONIZED_STATS_SP_KEY))
+        data_model_plots_files    = list(self.find_log_files(self.DATA_MODELS_PLOTS_SP_KEY))
+        harmonization_plots_files = list(self.find_log_files(self.HARMONIZATION_PLOTS_SP_KEY))
+        harmonization_distance_files = list(self.find_log_files(self.HARMONIZATION_DISTANCE_SP_KEY))
 
         # Nothing found - raise ModuleNoSamplesFound to tell MultiQC
-        if len(files) == 0:
+        if len(harmonized_stats_files) == 0:
             log.debug(f"Could not find harmonization reports in {config.analysis_dir}")
             raise ModuleNoSamplesFound
 
-        meta, data = self._parse_tsv_file(files[0])
+        self.ref_df        = load_sites_data(ref_stats_file)
+        self.raw_df        = load_sites_data(raw_stats_files)
+        self.harmonized_df = load_sites_data(harmonized_stats_files)
+        
+        # Read plot data from JSON files and aggregate
+        self.data_model_json    = PlotJsonAggregator.from_json(list(map(lambda f: f["f"], data_model_plots_files)))
+        self.harmonization_json = PlotJsonAggregator.from_json(list(map(lambda f: f["f"], harmonization_plots_files)))
 
-        # --- 1. Prepare Your Data ---
-        # Assume you have a dictionary of all your tuples
-        # Format: { "Tuple_Name": [Data_For_Plot_1, Data_For_Plot_2, Data_For_Plot_3] }
-        metrics_bundles = {
-            "Bundle 1": {
-                "Metric 1": [
-                    gen_scatter_data(base=15, variance=0.5),
-                    gen_scatter_data(base=15, variance=0.5),
-                    gen_scatter_data(base=15, variance=0.5),
-                ],
-                "Metric 2": [
-                    gen_scatter_data(base=15, variance=0.5),
-                    gen_scatter_data(base=15, variance=0.5),
-                    gen_scatter_data(base=15, variance=0.5),
-                ],
-                "Metric 3": [
-                    gen_scatter_data(base=15, variance=0.5),
-                    gen_scatter_data(base=15, variance=0.5),
-                    gen_scatter_data(base=15, variance=0.5),
-                ],
-            },
-            "Bundle 2": {
-                "Metric 1": [
-                    gen_scatter_data(base=15, variance=0.5),
-                    gen_scatter_data(base=15, variance=0.5),
-                    gen_scatter_data(base=15, variance=0.5),
-                ],
-                "Metric 2": [
-                    gen_scatter_data(base=15, variance=0.5),
-                    gen_scatter_data(base=15, variance=0.5),
-                    gen_scatter_data(base=15, variance=0.5),
-                ],
-                "Metric 3": [
-                    gen_scatter_data(base=15, variance=0.5),
-                    gen_scatter_data(base=15, variance=0.5),
-                    gen_scatter_data(base=15, variance=0.5),
-                ],
-            },
-            "Bundle 3": {
-                "Metric 1": [
-                    gen_scatter_data(base=15, variance=0.5),
-                    gen_scatter_data(base=15, variance=0.5),
-                    gen_scatter_data(base=15, variance=0.5),
-                ],
-                "Metric 2": [
-                    gen_scatter_data(base=15, variance=0.5),
-                    gen_scatter_data(base=15, variance=0.5),
-                    gen_scatter_data(base=15, variance=0.5),
-                ],
-                "Metric 3": [
-                    gen_scatter_data(base=15, variance=0.5),
-                    gen_scatter_data(base=15, variance=0.5),
-                    gen_scatter_data(base=15, variance=0.5),
-                ],
-            },
-        }
+        # Extract list of metrics and non-metric columns
+        bundles = list(self.harmonized_df["roi"].unique())
+        headers = set(self.harmonized_df.columns)
+        meta_columns = set(["site", "age", "sex", "handedness", "disease"])
+        non_metric_columns = set(["sample", "roi"]) | meta_columns
+        metric_columns = headers - non_metric_columns
+        # Filter metric_columns to keep only "fa, md, rd columns"
+        metric_columns = [m for m in metric_columns if m in ["fa", "md", "rd", "ad"]]
 
-        # --- 2. Render the INITIAL View (The First Tuple) ---
-        # We use fixed IDs (p1_container, p2_container...) so we can find them with JS later
+        # Verify that the raw_df and harmonized_df have the same samples
+        assert set(self.raw_df["sample"]) == set(self.harmonized_df["sample"]), \
+            "The raw and harmonized data files must contain the same samples."
+        
+        # Verify that the raw and harmonized data have the same ROIs
+        assert set(self.raw_df["roi"]) == set(self.harmonized_df["roi"]), \
+            "The raw and harmonized data files must contain the same ROIs."
+        
+        # Verify that the dataframes and the jsons have the same ROIs and metrics
+        for bundle in bundles:
+            for metric in metric_columns:
+                assert bundle in self.data_model_json.data, \
+                    f"The bundle {bundle} is missing from the data model JSON."
+                assert metric in self.data_model_json.data[bundle], \
+                    f"The metric {metric} is missing from the data model JSON for bundle {bundle}."
+                assert bundle in self.harmonization_json.data, \
+                    f"The bundle {bundle} is missing from the harmonization JSON."
+                assert metric in self.harmonization_json.data[bundle], \
+                    f"The metric {metric} is missing from the harmonization JSON for bundle {bundle}."
 
-        # Create the Flexbox Layout for these 3 plots
-        def make_flex_row(plot_data_list, bundle, metric, hidden=False):
-            div_id = f"{bundle.replace(' ', '-')}_{metric.replace(' ', '-')}"
-            # Generate the 3 individual plots
-            # Note: Use unique IDs to prevent DOM conflicts!
-            plot_anchors = [f"p1_{div_id}", f"p2_{div_id}", f"p3_{div_id}"]
-
-            p1 = scatter.plot(
-                plot_data_list[0],
-                pconfig={
-                    "id": plot_anchors[0],
-                    "title": f"Datamodel raw ({metric} in {bundle})",
-                    "extra_series": {
-                        "name": "extra series name",
-                        "data": {
-                            "x": 2 + random.uniform(-variance, variance),
-                            "y": 20 + random.uniform(-variance, variance),
-                        },
-                        "dash": "dash",
-                        "width": 1,
-                        "color": "#000000",
-                        "marker": {"enabled": False},
-                        "showlegend": True,
-                    },
-                },
-            )
-            p2 = scatter.plot(
-                plot_data_list[1],
-                pconfig={"id": plot_anchors[1], "title": f"AgeCurve raw ({metric} in {bundle})"},
-            )
-            p3 = scatter.plot(
-                plot_data_list[2],
-                pconfig={"id": plot_anchors[2], "title": f"AgeCurve harmonized ({metric} in {bundle})"},
-            )
-
-            p1_html = p1.add_to_report(module_anchor="harmonization", section_anchor="harmonization_distributions")
-            p2_html = p2.add_to_report(module_anchor="harmonization", section_anchor="harmonization_distributions")
-            p3_html = p3.add_to_report(module_anchor="harmonization", section_anchor="harmonization_distributions")
-
-            return (
-                f"""
-            <div id="{div_id}" style="display: {"none" if hidden else "flex"}; flex-direction: row; justify-content: space-between;">
-                <div style="width: 32%;">{p1_html}</div>
-                <div style="width: 32%;">{p2_html}</div>
-                <div style="width: 32%;">{p3_html}</div>
-            </div>
-            """,
-                {"plot_anchors": plot_anchors, "div_id": div_id},
-                div_id,
-            )
-
-        # --- 3. Generate content for each tab ---
         is_first_tuple = True
         all_div_ids = []
         anchors = {}
         plots_html_content = ""
-        for bundle, metrics in metrics_bundles.items():
-            for metric, data in metrics.items():
-                html, plot_anchors, div_id = make_flex_row(data, bundle, metric, hidden=not is_first_tuple)
+        for bundle in bundles:
+            for metric in metric_columns:
+                log.info(f"Processing bundle: {bundle}, metric: {metric}")
+                html, div_id = self.make_flex_row(bundle, metric, hidden=not is_first_tuple)
 
                 plots_html_content += html
 
@@ -233,42 +119,62 @@ class MultiqcModule(BaseMultiqcModule):
 
                 if bundle not in anchors:
                     anchors[bundle] = {}
-                anchors[bundle][metric] = plot_anchors
+                anchors[bundle][metric] = div_id
                 is_first_tuple = False
 
         html_bundle_options = "".join(
             [
                 f'<option value="{bundle}" {"selected" if i == 0 else ""}>{bundle}</option>'
-                for i, bundle in enumerate(metrics_bundles.keys())
+                for i, bundle in enumerate(bundles)
             ]
         )
         html_metric_options = "".join(
             [
                 f'<option value="{metric}" {"selected" if i == 0 else ""}>{metric}</option>'
-                for i, metric in enumerate(next(iter(metrics_bundles.values())).keys())
+                for i, metric in enumerate(metric_columns)
             ]
         )
-        default_bundle = list(metrics_bundles.keys())[0]
-        default_metric = list(next(iter(metrics_bundles.values())).keys())[0]
-
+        default_bundle = list(bundles)[0]
+        default_metric = list(metric_columns)[0]
         html_script = f"""
-        <div class="d-flex justify-content-center gap-3">
-            <select class="form-select w-auto" aria-label="Metric selection" onchange="showScenario(current_bundle, this.value)">
-                {html_metric_options}
-            </select>
-            
-            <select class="form-select w-auto" aria-label="Bundle selection" onchange="showScenario(this.value, current_metric)">
-                {html_bundle_options}
-            </select>
+        <div class="d-flex justify-content-center gap-4">
+            <div class="text-center">
+                <label class="form-label mb-2 fw-semibold">Bundle</label>
+                <select class="form-select shadow-sm" 
+                        aria-label="Bundle selection" 
+                        onchange="showBundleMetricPlot(this.value, current_metric)"
+                        style="min-width: 150px;">
+                    {html_bundle_options}
+                </select>
+            </div>
+
+            <div class="text-center">
+                <label class="form-label mb-2 fw-semibold">Metric</label>
+                <select class="form-select shadow-sm" 
+                        aria-label="Metric selection" 
+                        onchange="showBundleMetricPlot(current_bundle, this.value)"
+                        style="min-width: 150px;">
+                    {html_metric_options}
+                </select>
+            </div>
         </div>
         <script>
-        var anchors = {json.dumps(anchors)};
         var div_ids = {json.dumps(all_div_ids)};
+        var anchors = {json.dumps(anchors)};
         var current_bundle = "{default_bundle}";
         var current_metric = "{default_metric}";
 
-        function showScenario(bundle, metric) {{
-            console.log("Switching to view: ", bundle, ",", metric);
+        function renderPlotlyPlots(parentDiv) {{
+            // Find ALL plotly graph divs inside it and resize each
+            setTimeout(() => {{
+                parentDiv.querySelectorAll('.plotly-graph-div').forEach(plotDiv => {{
+                    Plotly.relayout(plotDiv, {{}});
+                }});
+            }}, 0);  // Even 0ms helps by deferring to next event loop
+        }}
+
+        function showBundleMetricPlot(bundle, metric) {{
+            var metric_changed = (metric !== current_metric);
             current_bundle = bundle;
             current_metric = metric;
 
@@ -278,289 +184,518 @@ class MultiqcModule(BaseMultiqcModule):
             }});
             
             // Show the selected scenario
-            var selected_div_id = anchors[bundle][metric]['div_id'];
-            console.log("Showing div ID:", selected_div_id);
-            document.getElementById(selected_div_id).style.display = 'flex';
-            
-            var plotIds = anchors[bundle][metric]['plot_anchors'];
-            console.log("Rendering plots with IDs:", plotIds);
-            plotIds.forEach(function(plotId) {{
-                // The renderPlot function is provided by MultiQC's default template.
-                // It handles the rendering of plots by their IDs (i.e. plot anchors).
-                // If the plots are not visible when the window is loaded, they simply
-                // won't be rendered. When we switch the metrics/experiments, we need to
-                // explicitly call renderPlot again to make sure that they get drawn.
-                renderPlot(plotId);
-            }}); 
+            var selected_div_id = anchors[bundle][metric];
+            document.getElementById(selected_div_id).style.display = 'block';
+
+            const subPlotsParentDiv = document.getElementById(selected_div_id);
+            renderPlotlyPlots(subPlotsParentDiv);
+
+            // Also render the bhattacharyya_plot_div plot if the metric is changed
+            if (metric_changed) {{
+                renderBhattacharyyaPlots(metric);
+            }}
         }}
         </script>
         """
 
-        html_content = html_script + plots_html_content
-
-        # --- 4. Add Section with Tabs ---
-        # MultiQC automatically creates tabs if you pass a dict to 'plot'
-        self.add_section(name="Comparisons", anchor="my_comparison_section", content=html_content)
-
-    def _fetch_data_for_roi_metric(
-        self, data: Dict[str, Dict[str, Dict[str, Any]]], roi: str, metric: str
-    ) -> Dict[str, float]:
-        """Fetch data for a specific ROI and metric across all samples."""
-        plot_data = {}
-        for sample, rois in data.items():
-            if roi in rois and metric in rois[roi]:
-                plot_data[sample] = rois[roi][metric]
-        return plot_data
-
-    def _parse_tsv_file(self, f) -> Dict[str, Any]:
-        """Parse a TSV file and return its contents as a dictionary."""
-        data = defaultdict(lambda: defaultdict(dict))
-        meta = defaultdict(dict)
-        # data = {
-        #     "sub-01": {
-        #         "roi_1": {
-        #             "FA": 0.45,
-        #             "MD": 0.0008
-        #         },
-        #         "roi_2": {
-        #             "FA": 0.50,
-        #             "MD": 0.0007
-        #         }
-        #     },
-        #     "sub-02": {
-        #         "roi_1": {
-        #             "FA": 0.47,
-        #             "MD": 0.0009
-        #         },
-        #         "roi_2": {
-        #             "FA": 0.52,
-        #             "MD": 0.0006
-        #         }
-        #     }
-        # }
-
-        file_content = f.get("f", "").splitlines()
-        reader = csv.DictReader(file_content, delimiter="\t")
-        headers = set(reader.fieldnames)
-
-        meta_columns = set(["site", "age", "handedness", "disease"])
-        non_metric_columns = set(["sample", "roi"]) | meta_columns
-        metric_columns = headers - non_metric_columns
-        for row in reader:
-            sample = row["sample"]
-            roi = row["roi"]
-
-            if not meta.get(sample, None):
-                # Use dict comprehension to populate meta information
-                meta[sample] = {col: row[col] for col in meta_columns}
-
-            for metric in metric_columns:
-                value = float(row[metric])
-                data[sample][roi][metric] = value
-
-        return dict(meta), dict(data)
-
-    def _parse_tsv_file_sections(self, f) -> Dict[str, Any]:
-        """Parse a TSV file and return its contents as a dictionary."""
-        data = defaultdict(lambda: defaultdict(dict))
-        meta = defaultdict(dict)
-        # data = {
-        #     "bundle_1": {
-        #         "roi_1": {
-        #             "sample-01": 0.45,
-        #             "sample-02": 0.0008
-        #         },
-        #         "roi_2": {
-        #             "sample-02": 0.50,
-        #             "sample-02": 0.0007
-        #         }
-        #     },
-        #     "bundle_2": {
-        #         "roi_1": {
-        #             "FA": 0.47,
-        #             "MD": 0.0009
-        #         },
-        #         "roi_2": {
-        #             "FA": 0.52,
-        #             "MD": 0.0006
-        #         }
-        #     }
-        # }
-
-        file_content = f.get("f", "").splitlines()
-        reader = csv.DictReader(file_content, delimiter="\t")
-        headers = set(reader.fieldnames)
-
-        meta_columns = set(["site", "age", "handedness", "disease"])
-        non_metric_columns = set(["sample", "roi"]) | meta_columns
-        metric_columns = headers - non_metric_columns
-        for row in reader:
-            sample = row["sample"]
-            roi = row["roi"]
-
-            if not meta.get(sample, None):
-                # Use dict comprehension to populate meta information
-                meta[sample] = {col: row[col] for col in meta_columns}
-
-            for metric in metric_columns:
-                value = float(row[metric])
-                data[sample][roi][metric] = value
-
-        return dict(meta), dict(data)
-
-
-class ClaudeMultiqcModule(BaseMultiqcModule):
-    def __init__(self):
-        super(MultiqcModule, self).__init__(
-            name="Example Module", anchor="example_module", info="Example showing 3 plots with single shared dropdown"
-        )
-
-        # Generate fake data for 10 different groups
-        x_values = list(range(1, 101))
-
-        # Store all group data
-        all_groups = []
-
-        # Generate 10 groups, each with 3 plots
-        for group_num in range(1, 11):
-            group_plots = []
-            for plot_num in range(1, 4):
-                base = group_num * 5 + plot_num * 10
-                noise = 2 + group_num * 0.3
-                data = self._generate_sample_data(x_values, base=base, noise=noise)
-                group_plots.append(data)
-            all_groups.append(group_plots)
-
-        # Create the three plots with synchronized switching
-        self._create_plots(all_groups)
-
-    def _generate_sample_data(self, x_values, base=10, noise=2):
-        """Generate fake sample data with some trend and noise"""
-        samples = {}
-        for i in range(3):
-            sample_name = f"Sample_{i + 1}"
-            y_values = [base + 0.1 * x + np.random.normal(0, noise) for x in x_values]
-            samples[sample_name] = {x: y for x, y in zip(x_values, y_values)}
-        return samples
-
-    def _create_plots(self, all_groups):
-        """Create three side-by-side plots with single shared dropdown"""
-
-        # Separate data by plot position
-        plot1_data = [group[0] for group in all_groups]
-        plot2_data = [group[1] for group in all_groups]
-        plot3_data = [group[2] for group in all_groups]
-
-        # Create data labels for all 10 groups
-        data_labels = [{"name": f"Experiment {i}", "ylab": f"Value (Group {i})"} for i in range(1, 11)]
-
-        # Plot configurations - note we're hiding the default buttons
-        plot1_config = {
-            "id": "sync_plot_1",
-            "title": "Metric A",
-            "ylab": "Value",
-            "xlab": "Position",
-            "data_labels": data_labels,
-            "hide_buttons": True,  # Hide individual plot buttons
-        }
-
-        plot2_config = {
-            "id": "sync_plot_2",
-            "title": "Metric B",
-            "ylab": "Value",
-            "xlab": "Position",
-            "data_labels": data_labels,
-            "hide_buttons": True,
-        }
-
-        plot3_config = {
-            "id": "sync_plot_3",
-            "title": "Metric C",
-            "ylab": "Value",
-            "xlab": "Position",
-            "data_labels": data_labels,
-            "hide_buttons": True,
-        }
-
-        # Generate the plots
-        plot1_html = linegraph.plot(plot1_data, plot1_config).add_to_report(
-            module_anchor="example_module", section_anchor="multiplot_comparison"
-        )
-        plot2_html = linegraph.plot(plot2_data, plot2_config).add_to_report(
-            module_anchor="example_module", section_anchor="multiplot_comparison"
-        )
-        plot3_html = linegraph.plot(plot3_data, plot3_config).add_to_report(
-            module_anchor="example_module", section_anchor="multiplot_comparison"
-        )
-
-        # Create a single dropdown that controls all three plots
-        dropdown_options = "".join(
-            [f'<option value="{i}">{label["name"]}</option>' for i, label in enumerate(data_labels)]
-        )
-
-        # Combine plots with single shared dropdown
-        combined_html = f"""
-        <div id="sync_plots_container">
-            <div style="margin-bottom: 15px;">
-                <label for="sync_plot_selector" style="font-weight: bold; margin-right: 10px;">
-                    Select Experiment:
-                </label>
-                <select id="sync_plot_selector" class="form-control" style="display: inline-block; width: auto;">
-                    {dropdown_options}
-                </select>
-            </div>
-            
-            <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-                <div style="flex: 1; min-width: 300px;">
-                    {plot1_html}
-                </div>
-                <div style="flex: 1; min-width: 300px;">
-                    {plot2_html}
-                </div>
-                <div style="flex: 1; min-width: 300px;">
-                    {plot3_html}
-                </div>
-            </div>
-        </div>
+        # Add the section to the report
+        self.add_section(
+            name="Distributional results",
+            anchor="harmonization_distributional_results",
+            content=html_script + plots_html_content)
         
-        <script type="text/javascript">
-        $(function() {{
-            // Function to switch all three plots using MultiQC's internal method
-            function switchSyncedPlots(datasetIndex) {{
+        # Load Bhattacharyya distance data
+        # In theory, there should be two categories: "raw" and "harmonized"
+        # The pre-harmonization files should be named: Site.metric.raw.bhattacharyya.txt
+        # The post-harmonization files should be named: Site.metric.clinical.harmonized.bhattacharyya.txt
+        # Each file as two lines with values separated by white spaces.
+        # The first line of the file contains the ROIs/bundles names.
+        # The second line contains the corresponding Bhattacharyya distance values.
+        # Exception: for some reason, the first column contains the subject/sample count
+        # of healthly controls for that site, so we will discard that column as we have no
+        # use for it at the moment.
+        bhattacharyya_html_content = ""
+        bhattacharyya_data = {"raw": defaultdict(lambda: defaultdict(list)), "harmonized": defaultdict(lambda: defaultdict(list))}
+        all_metrics = set()
+        for f in harmonization_distance_files:
+            filename = f["fn"]
+            lines = f["f"].strip().split("\n")
 
-                console.log("Switching all plots to dataset index:", datasetIndex);
-                var plotIds = ['#sync_plot_1', '#sync_plot_2', '#sync_plot_3'];
-                
-                plotIds.forEach(function(plotId) {{
-                    if (window.mqc_plots && window.mqc_plots[plotId]) {{
-                        var plot = window.mqc_plots[plotId];
-                        var oldIdx = plot.activeDatasetIdx;
-                        plot.activeDatasetIdx = datasetIndex;
-                        
-                        // Only re-render if dataset changed and plot is already rendered
-                        if (oldIdx !== datasetIndex && plot.rendered) {{
-                            // Use MultiQC's internal switch function
-                            if (typeof window.$s === 'function') {{
-                                window.$s(plotId);
-                            }}
-                        }}
-                    }}
-                }});
-            }}
+            if len(lines) < 2:
+                raise ValueError(f"Bhattacharyya distance file {filename} must contain at least two lines.")
             
-            // Handle dropdown change
-            $('#sync_plot_selector').on('change', function() {{
-                var selectedIndex = parseInt($(this).val());
-                switchSyncedPlots(selectedIndex);
+            bundles     = lines[0].strip().split()[1:]  # Skip first column (sample count)
+            distances   = lines[1].strip().split()[1:]  # Skip first column (sample count)
+
+            if len(bundles) != len(distances):
+                raise ValueError(f"Bhattacharyya distance file {filename} has mismatched number of bundles and distances.")
+            
+            # Extract site, metric, and harmonization status from filename
+            parts = os.path.basename(filename).split(".")
+            if len(parts) < 4:
+                raise ValueError(f"Bhattacharyya distance filename {filename} is not in the expected format.")
+            
+            metric = parts[1]
+            all_metrics.add(metric)
+            status = "harmonized" if "harmonized" in parts else "raw"
+
+            for b, d in zip(bundles, distances):
+                bhattacharyya_data[status][metric]["bundles"].append(b)
+                bhattacharyya_data[status][metric]["distances"].append(float(d))
+
+        # Create the boxplot using Plotly
+        all_metrics = bhattacharyya_data["raw"].keys() | bhattacharyya_data["harmonized"].keys()
+        b_div_ids = {}
+        for metric in all_metrics:
+            fig = go.Figure()
+
+            # Raw data
+            if metric in bhattacharyya_data["raw"]:
+                fig.add_trace(
+                    go.Box(
+                        y=bhattacharyya_data["raw"][metric]["distances"],
+                        name="Pre-Harmonization",
+                        boxmean=True,
+                        marker_color="darkblue",
+                        text=bhattacharyya_data["raw"][metric]["bundles"]
+                    )
+                )
+
+            # Harmonized data
+            if metric in bhattacharyya_data["harmonized"]:
+                fig.add_trace(
+                    go.Box(
+                        y=bhattacharyya_data["harmonized"][metric]["distances"],
+                        name="Post-Harmonization",
+                        marker_color="royalblue",
+                        text=bhattacharyya_data["harmonized"][metric]["bundles"],
+                        boxmean=True
+                    )
+                )
+
+            fig.update_layout(
+                title=f"Mean Bhattacharyya distance across bundles<br>Metric: {metric}",
+                title_xanchor="center",
+                title_x=0.5,
+                yaxis_title="Bhattacharyya Distance",
+                height=500,
+                legend_visible=False,
+                
+            )
+
+            b_div_id = f"bhattacharyya_{metric.replace(' ', '-')}"
+            b_div_ids[metric] = b_div_id
+
+            bhattacharyya_html_content += f"""
+            <div id="{b_div_id}" style="max-width:800px; margin: 0 auto; display: {"none" if metric != default_metric else "block"};">
+                {pio.to_html(fig, full_html=False, include_plotlyjs=False)}
+            </div>
+            """
+        bhattacharyya_html_script = f"""
+        <script>
+        var bhattacharyya_div_ids = {json.dumps(b_div_ids)};
+        function renderBhattacharyyaPlots(metric) {{
+            console.log("Rendering Bhattacharyya plot for metric:", metric);
+            // Make every plot div hidden before showing the selected one
+            Object.values(bhattacharyya_div_ids).forEach(function(divId) {{
+                document.getElementById(divId).style.display = 'none';
             }});
-        }});
+
+            // Find ALL plotly graph divs inside it and resize each
+            var divId = bhattacharyya_div_ids[metric];
+            document.getElementById(divId).style.display = 'block';
+            console.log("Rendering div ID:", divId);
+            renderPlotlyPlots(document.getElementById(divId));
+        }}
         </script>
         """
 
-        # Add section to report
         self.add_section(
-            name="Multi-Plot Comparison",
-            anchor="multiplot_comparison",
-            description="Three related plots controlled by a single dropdown selector",
-            plot=combined_html,
+            name="Mean Bhattacharyya Distance (BD)",
+            anchor="bhattacharyya_distance",
+            description="""
+                The second subsection also includes a boxplot of the mean Bhattacharyya distance across
+                bundles, before and after harmonization. The Bhattacharyya distance is a measure of similarity
+                between two probability distributions. A lower Bhattacharyya distance indicates a higher
+                similarity between the distributions. Thus, after harmonization, we expect to see a decrease
+                in the Bhattacharyya distance values, indicating that the distributions of the moving site
+                have become more similar to those of the reference site.""",
+            content=bhattacharyya_html_script + bhattacharyya_html_content)
+        
+
+    def make_flex_row(self, bundle, metric, hidden=False):
+        div_id = f"{bundle.replace(' ', '-')}_{metric.replace(' ', '-')}"
+        # Generate the 3 individual plots
+        # Note: Use unique IDs to prevent DOM conflicts!
+        
+        fig = make_subplots(
+            rows=1,
+            cols=3,
+            shared_yaxes=True,
+            horizontal_spacing=0.025,
+            subplot_titles=("Data Model", "Pre-Harmonization", "Post-Harmonization")
+        )
+
+        self.create_datamodel_figure(bundle, metric, fig=fig, row=1, col=1)
+        self.create_agecurve_raw_figure(bundle, metric, fig=fig, row=1, col=2)
+        self.create_agecurve_harmonized_figure(bundle, metric, fig=fig, row=1, col=3)
+
+        fig.update_layout(
+            autosize=True,
+            title_text=f"Bundle: {bundle} | Metric: {metric}",
+            title_xanchor="center",
+            title_x=0.5,
+            legend_orientation="h",
+            legend_y=-0.15,
+            legend_xanchor="center",
+            legend_x=0.5,
+            margin_b=40,
+            height=500
+        )
+
+        fig.update_xaxes(title_text="Age")
+        fig.update_yaxes(title_text=metric.upper(), row=1, col=1)
+
+        return (
+            f"""
+        <div id="{div_id}" style="width:100%; display: {"none" if hidden else "block"};">
+            {pio.to_html(fig, full_html=False, include_plotlyjs=False)}
+        </div>
+        """,
+        div_id,
+        )
+    
+    ########################################
+    # DataModel plot
+    ########################################
+    def create_datamodel_figure(self, bundle, metric, fig, row, col):
+        ref_data = self.ref_df[self.ref_df["roi"] == bundle]
+        raw_data = self.raw_df[self.raw_df["roi"] == bundle]
+
+        plot_json = self.data_model_json.data[bundle][metric]
+        ref_color = to_plotly_rgb(plot_json["regression_reference"]["color"]) \
+            if "regression_reference" in plot_json and "color" in plot_json["regression_reference"] else PALETTE[0]
+        moving_color = to_plotly_rgb(plot_json["regression_moving"]["color"]) \
+            if "regression_moving" in plot_json and "color" in plot_json["regression_moving"] else PALETTE[1]
+        
+        reference_name = f"{plot_json['regression_reference']['site']} (reference)"
+        moving_name = f"{plot_json['regression_moving']['site']} (moving)"
+
+        # Add reference scatterplot of data
+        fig.add_trace(
+            go.Scatter(
+                x=ref_data["age"],
+                y=ref_data[metric],
+                mode="markers",
+                text=ref_data["sample"],
+                marker=dict(color=ref_color),
+                name=reference_name,
+                legendgroup="reference_group"
+            ),
+            row=row,
+            col=col
+        )
+
+        # Add (raw) moving scatter
+        fig.add_trace(
+            go.Scatter(
+                x=raw_data["age"],
+                y=raw_data[metric],
+                mode="markers",
+                text=raw_data["sample"],
+                marker=dict(color=moving_color),
+                name=moving_name,
+                legendgroup="moving_group"
+            ),
+            row=row,
+            col=col
+        )
+
+        # Add reference regression line which was calculated by Clinical-Combat
+        ref_x = plot_json["regression_reference"]["data_x"]
+        ref_y = plot_json["regression_reference"]["data_y"]
+        fig.add_trace(
+            go.Scatter(
+                x=ref_x,
+                y=ref_y,
+                mode="lines",
+                name=reference_name + " - regression",
+                line=dict(color=ref_color),
+                legendgroup="reference_group",
+                showlegend=False
+            ),
+            row=row,
+            col=col
+        )
+
+        mov_x = plot_json["regression_moving"]["data_x"]
+        mov_y = plot_json["regression_moving"]["data_y"]
+        fig.add_trace(
+            go.Scatter(
+                x=mov_x,
+                y=mov_y,
+                mode="lines",
+                name=moving_name + " - regression",
+                line=dict(color=moving_color),
+                legendgroup="moving_group",
+                showlegend=False
+            ),
+            row=row,
+            col=col
+        )
+    
+    ########################################
+    # AgeCurve Raw plot
+    ########################################
+    def create_agecurve_raw_figure(self, bundle, metric, fig, row, col):
+        """Create a AgeCurve Raw figure to visualize the data."""
+
+        plot_json = self.harmonization_json.data[bundle][metric]
+
+        ############################
+        # Reference percentiles
+        ############################
+        reference_percentile_plots = plot_json['reference_percentiles']
+
+        # Extract the percentile curves dict keys ordered by percentile number.
+        ref_percentile_plots = [k for k in reference_percentile_plots.keys()]
+        ref_percentiles = [v["percentile"] for v in reference_percentile_plots.values()]
+        ref_available_percentiles = [p for _, p in sorted(zip(ref_percentiles, ref_percentile_plots))]
+
+        # Make sure the number of percentiles is odd to have a middle one
+        if len(ref_available_percentiles) % 2 == 0:
+            raise ValueError("The number of percentiles must be odd to have a main/mean percentile.")
+
+        ref_middle = len(ref_available_percentiles) // 2
+        ref_other_percentiles = ref_available_percentiles[:ref_middle] + ref_available_percentiles[ref_middle+1:]
+
+        # Make sure the 5th percentile is matched with the 95th, 10th with 90th, etc.
+        for i in range(len(ref_other_percentiles)//2):
+            p1_name = ref_other_percentiles[i]
+            p2_name = ref_other_percentiles[-(i+1)]
+
+            p1 = reference_percentile_plots[p1_name]
+            p2 = reference_percentile_plots[p2_name]
+            
+            # We need to fill the area between p1 and p2
+            fig.add_trace(
+                go.Scatter(
+                    x=p1['data_x'] + p2['data_x'][::-1],
+                    y=p1['data_y'] + p2['data_y'][::-1],
+                    fill='toself',
+                    fillcolor=p1["color"],
+                    line=dict(color='rgba(255,255,255,0)'),
+                    name=f"Reference {p1['percentile']}th - {p2['percentile']}th percentile",
+                    legendgroup="reference_group",
+                    showlegend=False,
+                    opacity=0.2
+                ),
+                row=row,
+                col=col
+            )
+
+        ############################
+        # Moving percentiles
+        ############################
+        moving_percentile_plots = plot_json['moving_raw_percentiles']
+
+        # Extract the percentile curves dict keys ordered by percentile number.
+        mov_percentile_plots = [k for k in moving_percentile_plots.keys()]
+        mov_percentiles = [v["percentile"] for v in moving_percentile_plots.values()]
+        mov_available_percentiles = [p for _, p in sorted(zip(mov_percentiles, mov_percentile_plots))]
+
+        # Make sure the number of percentiles is odd to have a middle one
+        if len(mov_available_percentiles) % 2 == 0:
+            raise ValueError("The number of percentiles must be odd to have a main/mean percentile.")
+
+        mov_middle = len(mov_available_percentiles) // 2
+
+        mov_other_percentiles = mov_available_percentiles[:mov_middle] + mov_available_percentiles[mov_middle+1:]
+
+        # Make sure the 5th percentile is matched with the 95th, 10th with 90th, etc.
+        for i in range(len(mov_other_percentiles)//2):
+            p1_name = mov_other_percentiles[i]
+            p2_name = mov_other_percentiles[-(i+1)]
+
+            p1 = moving_percentile_plots[p1_name]
+            p2 = moving_percentile_plots[p2_name]
+            
+            # We need to fill the area between p1 and p2
+            fig.add_trace(
+                go.Scatter(
+                    x=p1['data_x'] + p2['data_x'][::-1],
+                    y=p1['data_y'] + p2['data_y'][::-1],
+                    fill='toself',
+                    fillcolor=p1["color"],
+                    line=dict(color='rgba(255,255,255,0)'),
+                    name=f"Moving {p1['percentile']}th - {p2['percentile']}th percentile",
+                    legendgroup="moving_group",
+                    showlegend=False,
+                    opacity=0.2
+                ),
+                row=row,
+                col=col
+            )
+
+
+        ############################
+        # Median curves
+        ############################
+        # Plot the median curves last so they get drawn on top of the filled areas.
+        ref_median_curve = ref_available_percentiles[ref_middle]
+        fig.add_trace(
+            go.Scatter(
+                x=reference_percentile_plots[ref_median_curve]['data_x'],
+                y=reference_percentile_plots[ref_median_curve]['data_y'],
+                mode="lines",
+                name="Reference",
+                legendgroup="reference_group",
+                showlegend=False,
+                line=dict(color=reference_percentile_plots[ref_median_curve]["color"], width=4),
+            ),
+            row=row,
+            col=col
+        )
+
+        mov_median_curve = mov_available_percentiles[mov_middle]
+        fig.add_trace(
+            go.Scatter(
+                x=moving_percentile_plots[mov_median_curve]['data_x'],
+                y=moving_percentile_plots[mov_median_curve]['data_y'],
+                mode="lines",
+                name="Moving",
+                legendgroup="moving_group",
+                showlegend=False,
+                line=dict(color=moving_percentile_plots[mov_median_curve]["color"], width=4),
+            ),
+            row=row,
+            col=col
+        )
+
+    ########################################
+    # AgeCurve Harmonized plot
+    ########################################
+    def create_agecurve_harmonized_figure(self, bundle, metric, fig, row, col):
+        """Create a AgeCurve Harmonized figure to visualize the data."""
+
+        plot_json = self.harmonization_json.data[bundle][metric]
+
+        ############################
+        # Reference percentiles
+        ############################
+        reference_percentile_plots = plot_json['reference_percentiles']
+
+        # Extract the percentile curves dict keys ordered by percentile number.
+        ref_percentile_plots = [k for k in reference_percentile_plots.keys()]
+        ref_percentiles = [v["percentile"] for v in reference_percentile_plots.values()]
+        ref_available_percentiles = [p for _, p in sorted(zip(ref_percentiles, ref_percentile_plots))]
+
+        # Make sure the number of percentiles is odd to have a middle one
+        if len(ref_available_percentiles) % 2 == 0:
+            raise ValueError("The number of percentiles must be odd to have a main/mean percentile.")
+
+        ref_middle = len(ref_available_percentiles) // 2
+        ref_other_percentiles = ref_available_percentiles[:ref_middle] + ref_available_percentiles[ref_middle+1:]
+
+        # Make sure the 5th percentile is matched with the 95th, 10th with 90th, etc.
+        for i in range(len(ref_other_percentiles)//2):
+            p1_name = ref_other_percentiles[i]
+            p2_name = ref_other_percentiles[-(i+1)]
+
+            p1 = reference_percentile_plots[p1_name]
+            p2 = reference_percentile_plots[p2_name]
+            
+            # We need to fill the area between p1 and p2
+            fig.add_trace(
+                go.Scatter(
+                    x=p1['data_x'] + p2['data_x'][::-1],
+                    y=p1['data_y'] + p2['data_y'][::-1],
+                    fill='toself',
+                    fillcolor=p1["color"],
+                    line=dict(color='rgba(255,255,255,0)'),
+                    name=f"Reference {p1['percentile']}th - {p2['percentile']}th percentile",
+                    legendgroup="reference_group",
+                    showlegend=False,
+                    opacity=0.2
+                ),
+                row=row,
+                col=col
+            )
+
+        ############################
+        # Moving percentiles
+        ############################
+        moving_percentile_plots = plot_json['moving_harmonized_percentiles']
+
+        # Extract the percentile curves dict keys ordered by percentile number.
+        mov_percentile_plots = [k for k in moving_percentile_plots.keys()]
+        mov_percentiles = [v["percentile"] for v in moving_percentile_plots.values()]
+        mov_available_percentiles = [p for _, p in sorted(zip(mov_percentiles, mov_percentile_plots))]
+
+        # Make sure the number of percentiles is odd to have a middle one
+        if len(mov_available_percentiles) % 2 == 0:
+            raise ValueError("The number of percentiles must be odd to have a main/mean percentile.")
+
+        mov_middle = len(mov_available_percentiles) // 2
+
+        mov_other_percentiles = mov_available_percentiles[:mov_middle] + mov_available_percentiles[mov_middle+1:]
+
+        # Make sure the 5th percentile is matched with the 95th, 10th with 90th, etc.
+        for i in range(len(mov_other_percentiles)//2):
+            p1_name = mov_other_percentiles[i]
+            p2_name = mov_other_percentiles[-(i+1)]
+
+            p1 = moving_percentile_plots[p1_name]
+            p2 = moving_percentile_plots[p2_name]
+            
+            # We need to fill the area between p1 and p2
+            fig.add_trace(
+                go.Scatter(
+                    x=p1['data_x'] + p2['data_x'][::-1],
+                    y=p1['data_y'] + p2['data_y'][::-1],
+                    fill='toself',
+                    fillcolor=p1["color"],
+                    line=dict(color='rgba(255,255,255,0)'),
+                    name=f"Moving {p1['percentile']}th - {p2['percentile']}th percentile",
+                    legendgroup="moving_group",
+                    showlegend=False,
+                    opacity=0.2
+                ),
+                row=row,
+                col=col
+            )
+
+
+        ############################
+        # Median curves
+        ############################
+        # Plot the median curves last so they get drawn on top of the filled areas.
+        ref_median_curve = ref_available_percentiles[ref_middle]
+        fig.add_trace(
+            go.Scatter(
+                x=reference_percentile_plots[ref_median_curve]['data_x'],
+                y=reference_percentile_plots[ref_median_curve]['data_y'],
+                mode="lines",
+                name="Reference",
+                legendgroup="reference_group",
+                showlegend=False,
+                line=dict(color=reference_percentile_plots[ref_median_curve]["color"], width=4),
+            ),
+            row=row,
+            col=col
+        )
+
+        mov_median_curve = mov_available_percentiles[mov_middle]
+        fig.add_trace(
+            go.Scatter(
+                x=moving_percentile_plots[mov_median_curve]['data_x'],
+                y=moving_percentile_plots[mov_median_curve]['data_y'],
+                mode="lines",
+                name="Moving",
+                legendgroup="moving_group",
+                showlegend=False,
+                line=dict(color=moving_percentile_plots[mov_median_curve]["color"], width=4),
+            ),
+            row=row,
+            col=col
         )
