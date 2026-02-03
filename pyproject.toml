@@ -42,6 +42,7 @@ packages = [
     "neuroimaging.modules.tractometry",
     "neuroimaging.modules.metricsinroi",
     "neuroimaging.modules.harmonization",
+    "neuroimaging.modules.harmonization.sections",
     "neuroimaging.modules.cortical",
     "neuroimaging.modules.subcortical",
     "neuroimaging.modules.framewise_displacement",
