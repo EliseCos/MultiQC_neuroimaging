@@ -66,6 +66,10 @@ class MultiqcModule(BaseMultiqcModule):
         if config.kwargs.get("single_subject", False):
             raise ModuleNoSamplesFound
 
+        # Superfluous function call to confirm that it is used in this module
+        # Replace None with actual version if it is available
+        self.add_software_version(None)
+
         # Load the reference stats file (useful to plot the reference scatterplot)
         ref_stats_file            = list(self.find_log_files(self.REF_STATS_SP_KEY))
         raw_stats_files           = list(self.find_log_files(self.RAW_STATS_SP_KEY))
