@@ -122,6 +122,7 @@ class MultiqcModule(BaseMultiqcModule):
             if batt_section_enabled:
                 batt_section.filter_metrics(metrics_filter)
 
+        # Check if there's any bundle/metric left after filtering
         if dist_section_enabled and batt_section_enabled:
             # Make sure that both sections have the same bundles and metrics
             assert set(dist_section.bundles) == set(batt_section.bundles), \
@@ -134,6 +135,17 @@ class MultiqcModule(BaseMultiqcModule):
         bundles = dist_section.bundles if dist_section_enabled else []
         metrics = dist_section.metrics if dist_section_enabled else batt_section.metrics
 
+        # Make sure at least one bundle and metric is available after filtering
+        if len(bundles) == 0 and len(metrics) == 0:
+            log.debug("No bundle or metric available for plotting after filtering. Skipping harmonization module.")
+            raise ModuleNoSamplesFound
+        elif len(metrics) == 0:
+            log.debug("No metric available for plotting after filtering. Skipping harmonization module.")
+            raise ModuleNoSamplesFound
+        elif dist_section_enabled and len(bundles) == 0:
+            log.debug("No bundle available for plotting after filtering. Skipping the harmonization distribution results section.")
+            dist_section_enabled = False
+        
         select_section.set_bundles_metrics(bundles, metrics)
 
         if dist_section_enabled:
