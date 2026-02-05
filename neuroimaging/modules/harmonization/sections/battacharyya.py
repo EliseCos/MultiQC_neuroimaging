@@ -5,9 +5,9 @@ from collections import defaultdict
 import plotly.graph_objects as go
 import plotly.io as pio
 
-from neuroimaging.modules.harmonization.sections.section import Section, HtmlContent
+from neuroimaging.modules.harmonization.sections.section import SectionBundleMetric, HtmlContent
 
-class BattacharyyaSection(Section):
+class BattacharyyaSection(SectionBundleMetric):
     HARMONIZATION_DISTANCE_SP_KEY  = "harmonization/harmonization_distance"
 
     def __init__(self, files):
@@ -94,8 +94,15 @@ class BattacharyyaSection(Section):
         """Filter the bundles to keep only those specified."""
         self.bundles = list(set(bundles_to_keep) & set(self.bundles))
 
-    def build_html(self, default_metric: str, render_bhatt_func: str, render_plot_func: str) -> HtmlContent:
-        """Build the Bhattacharyya distance boxplots HTML content."""
+    def build_html(self, default_metric: str, render_plot_func: str) -> HtmlContent:
+        """
+        Build the Bhattacharyya distance boxplots HTML content.
+
+        Parameters:
+        - default_metric: The metric to display by default when the page loads.
+        - render_plot_func: The name of the JavaScript function to call to render the plots after switching the bundle or metric.
+                            This function takes the parent div where the plots are located as an argument and renders the plots in that div.
+        """
         bhattacharyya_html_content = ""
         b_div_ids = {}
         for metric in self.metrics:
@@ -144,6 +151,9 @@ class BattacharyyaSection(Section):
                 {pio.to_html(fig, full_html=False, include_plotlyjs=False)}
             </div>
             """
+        
+        render_bhatt_func = "renderBhattPlots"
+
         bhattacharyya_html_script = f"""
         <script>
         var bhattacharyya_div_ids = {json.dumps(b_div_ids)};
@@ -163,6 +173,8 @@ class BattacharyyaSection(Section):
 
         data = HtmlContent(
             content=bhattacharyya_html_content + bhattacharyya_html_script,
-            metadata={}
+            metadata={
+                "render_metric_hook": render_bhatt_func
+            }
         )
         return data

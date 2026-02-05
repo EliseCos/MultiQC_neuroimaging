@@ -38,15 +38,6 @@ tractometry:
   warn_threshold: 90 # Warn if bundle percentage < 90%
   fail_threshold: 80 # Fail if bundle percentage < 80%
 
-report_section_order:
-  software_versions:
-    order: -1001
-  "sf-tractomics-summary":
-    title: "sf-tractomics Workflow Summary"
-    order: -1002
-  "sf-tractomics-methods-description":
-    order: -1000
-
 # Order that modules should appear in the report
 module_order:
   - framewise_displacement

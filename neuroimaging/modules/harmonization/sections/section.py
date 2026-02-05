@@ -11,20 +11,25 @@ class Section(metaclass=ABCMeta):
         pass
 
     @property
-    @abstractmethod
     def name(self):
-        raise NotImplementedError()
+        return None
     
     @property
-    @abstractmethod
     def anchor(self):
-        raise NotImplementedError()
+        return None
     
     @property
-    @abstractmethod
     def description(self):
+        return ""
+    
+    @abstractmethod
+    def build_html(self) -> HtmlContent:
         raise NotImplementedError()
     
+class SectionBundleMetric(Section):
+    def __init__(self):
+        super().__init__()
+
     @abstractmethod
     def get_metrics(self):
         raise NotImplementedError()
@@ -39,8 +44,4 @@ class Section(metaclass=ABCMeta):
     
     @abstractmethod
     def filter_bundles(self, bundles):
-        raise NotImplementedError()
-    
-    @abstractmethod
-    def build_html(self) -> HtmlContent:
         raise NotImplementedError()

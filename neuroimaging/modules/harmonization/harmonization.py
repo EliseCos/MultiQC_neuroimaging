@@ -5,6 +5,7 @@ from multiqc.base_module import BaseMultiqcModule, ModuleNoSamplesFound
 
 from .sections.battacharyya import BattacharyyaSection
 from .sections.distribution import DistributionSection
+from .sections.selection import SelectionSection
 
 # Initialise the main MultiQC logger
 log = logging.getLogger("multiqc")
@@ -73,22 +74,32 @@ class MultiqcModule(BaseMultiqcModule):
         harmonization_plots_files = list(self.find_log_files(self.HARMONIZATION_PLOTS_SP_KEY))
         harmonization_distance_files = list(self.find_log_files(self.HARMONIZATION_DISTANCE_SP_KEY))
 
-        # Nothing found - raise ModuleNoSamplesFound to tell MultiQC
-        if len(harmonized_stats_files) == 0:
-            log.debug(f"Could not find harmonization reports in {config.analysis_dir}")
+        dist_section_enabled = len(ref_stats_file) > 0 and \
+                               len(raw_stats_files) > 0 and \
+                               len(harmonized_stats_files) > 0 and \
+                               len(data_model_plots_files) > 0 and \
+                               len(harmonization_plots_files) > 0
+        batt_section_enabled = len(harmonization_distance_files) > 0
+
+        if not dist_section_enabled and not batt_section_enabled:
+            log.debug("Missing required files for harmonization module for the distribution section and Bhattacharyya section."
+                      " Skipping harmonization module.")
             raise ModuleNoSamplesFound
 
-        dist_section = DistributionSection(
-            ref_stats_file,
-            raw_stats_files,
-            harmonized_stats_files,
-            data_model_plots_files,
-            harmonization_plots_files
-        )
+        select_section = SelectionSection()
 
-        batt_section = BattacharyyaSection(
-            harmonization_distance_files
-        )
+        if dist_section_enabled:
+            dist_section = DistributionSection(
+                ref_stats_file,
+                raw_stats_files,
+                harmonized_stats_files,
+                data_model_plots_files,
+                harmonization_plots_files
+            )
+        if batt_section_enabled:
+            batt_section = BattacharyyaSection(
+                harmonization_distance_files
+            )
 
         # Fetch the bundles to render from the configuration
         bundles_filter = module_config.get("bundles", [])
@@ -101,34 +112,60 @@ class MultiqcModule(BaseMultiqcModule):
             metrics_filter = [metrics_filter]
 
         if len(bundles_filter) > 0:
-            dist_section.filter_bundles(bundles_filter)
-            batt_section.filter_bundles(bundles_filter)
+            if dist_section_enabled:
+                dist_section.filter_bundles(bundles_filter)
+            if batt_section_enabled:
+                batt_section.filter_bundles(bundles_filter)
         if len(metrics_filter) > 0:
-            dist_section.filter_metrics(metrics_filter)
-            batt_section.filter_metrics(metrics_filter)
+            if dist_section_enabled:
+                dist_section.filter_metrics(metrics_filter)
+            if batt_section_enabled:
+                batt_section.filter_metrics(metrics_filter)
 
-        # Make sure that both sections have the same bundles and metrics
-        assert set(dist_section.bundles) == set(batt_section.bundles), \
-            "The bundles available in the distribution section and Bhattacharyya section do not match (after filtering)."
-        assert set(dist_section.metrics) == set(batt_section.metrics), \
-            "The metrics available in the distribution section and Bhattacharyya section do not match (after filtering)."
+        if dist_section_enabled and batt_section_enabled:
+            # Make sure that both sections have the same bundles and metrics
+            assert set(dist_section.bundles) == set(batt_section.bundles), \
+                "The bundles available in the distribution section and Bhattacharyya section do not match (after filtering)."
+            assert set(dist_section.metrics) == set(batt_section.metrics), \
+                "The metrics available in the distribution section and Bhattacharyya section do not match (after filtering)."
+        
+        # Empty list to prevent the SelectionSection from displaying the bundle dropdown if the distribution section is disabled
+        # since the Bhattacharyya section only operates on the metrics.
+        bundles = dist_section.bundles if dist_section_enabled else []
+        metrics = dist_section.metrics if dist_section_enabled else batt_section.metrics
 
-        dist_html = dist_section.build_html()
+        select_section.set_bundles_metrics(bundles, metrics)
 
+        if dist_section_enabled:
+            dist_html = dist_section.build_html(select_section.default_bundle, select_section.default_metric, select_section.render_plot_func)
+            select_section.register_hook_on_bundle_metric_change(dist_html.metadata["render_bundle_metric_hook"])
+
+        if batt_section_enabled:
+            batt_html = batt_section.build_html(select_section.default_metric, select_section.render_plot_func)
+            select_section.register_hook_on_metric_change(batt_html.metadata["render_metric_hook"])
+        
+        # Build the selection section last to make sure we register the hooks and get the right metrics
+        select_html = select_section.build_html()
+
+        # Section with the dropdown menus to select the bundle and metric to display in the plots.
         self.add_section(
-            name=dist_section.name,
-            anchor=dist_section.anchor,
-            description=dist_section.description,
-            content=dist_html.content)
+            name=select_section.name,
+            anchor=select_section.anchor,
+            description=select_section.description,
+            content=select_html.content)
 
-        batt_html = batt_section.build_html(
-            dist_html.metadata["default_metric"],
-            dist_html.metadata["render_bhatt_func"],
-            dist_html.metadata["render_plot_func"])
+        # Section with the distribution plots (e.g. scatterplot of reference vs harmonized data, age curves, etc.)
+        if dist_section_enabled:
+            self.add_section(
+                name=dist_section.name,
+                anchor=dist_section.anchor,
+                description=dist_section.description,
+                content=dist_html.content)
 
-        self.add_section(
-            name=batt_section.name,
-            anchor=batt_section.anchor,
-            description=batt_section.description,
-            content=batt_html.content)
-
+        # Section with the Bhattacharyya distance boxplots
+        if batt_section_enabled:
+            self.add_section(
+                name=batt_section.name,
+                anchor=batt_section.anchor,
+                description=batt_section.description,
+                content=batt_html.content)

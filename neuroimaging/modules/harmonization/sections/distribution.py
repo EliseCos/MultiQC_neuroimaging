@@ -7,13 +7,13 @@ import plotly.graph_objects as go
 import plotly.io as pio
 from plotly.subplots import make_subplots
 
-from neuroimaging.modules.harmonization.sections.section import Section, HtmlContent
+from neuroimaging.modules.harmonization.sections.section import SectionBundleMetric, HtmlContent
 from neuroimaging.modules.harmonization.utils import load_sites_data, PALETTE, to_plotly_rgb
 from neuroimaging.modules.harmonization.plotjson import PlotJsonAggregator
 
 log = logging.getLogger("multiqc")
 
-class DistributionSection(Section):
+class DistributionSection(SectionBundleMetric):
     REF_STATS_SP_KEY            = "harmonization/reference_stats"
     RAW_STATS_SP_KEY            = "harmonization/raw_stats"
     HARMONIZED_STATS_SP_KEY     = "harmonization/harmonized_stats"
@@ -100,15 +100,24 @@ class DistributionSection(Section):
         """Filter the bundles to keep only those specified."""
         self.bundles = list(set(bundles_to_keep) & set(self.bundles))
 
-    def build_html(self) -> HtmlContent:
-        is_first_tuple = True
+    def build_html(self, default_bundle: str, default_metric: str, render_plot_func: str) -> HtmlContent:
+        """
+        Build the HTML content for the distribution section, which includes the data model plots and age curves.
+
+        Parameters:
+        - default_metric: The metric to display by default when the page loads.
+        - default_bundle: The bundle to display by default when the page loads.
+        - render_plot_func: The name of the JavaScript function to call to render the plots after switching the bundle or metric.
+                            This function takes the parent div where the plots are located as an argument and renders the plots in that div.
+        """
         all_div_ids = []
         anchors = {}
         plots_html_content = ""
         for bundle in self.bundles:
             for metric in self.metrics:
                 log.info(f"Harmonization QC: Processing bundle: {bundle}, metric: {metric}")
-                html, div_id = self.make_subplot_row(bundle, metric, hidden=not is_first_tuple)
+                is_default_plot = bundle == default_bundle and metric == default_metric
+                html, div_id = self.make_subplot_row(bundle, metric, hidden=not is_default_plot)
 
                 plots_html_content += html
 
@@ -118,72 +127,16 @@ class DistributionSection(Section):
                 if bundle not in anchors:
                     anchors[bundle] = {}
                 anchors[bundle][metric] = div_id
-                is_first_tuple = False
 
-        html_bundle_options = "".join(
-            [
-                f'<option value="{bundle}" {"selected" if i == 0 else ""}>{bundle}</option>'
-                for i, bundle in enumerate(self.bundles)
-            ]
-        )
-        html_metric_options = "".join(
-            [
-                f'<option value="{metric}" {"selected" if i == 0 else ""}>{metric}</option>'
-                for i, metric in enumerate(self.metrics)
-            ]
-        )
-        default_bundle = list(self.bundles)[0]
-        default_metric = list(self.metrics)[0]
-        render_bhatt_func = "renderBhattacharyyaPlots"
-        render_plot_func = "renderPlotlyPlots"
-
+        render_dist_plots_func = "renderDistributionPlots"
         html_script = f"""
-        <div class="d-flex justify-content-center gap-4">
-            <div class="text-center">
-                <label class="form-label mb-2 fw-semibold">Bundle</label>
-                <select class="form-select shadow-sm" 
-                        aria-label="Bundle selection" 
-                        onchange="showBundleMetricPlot(this.value, current_metric)"
-                        style="min-width: 150px;">
-                    {html_bundle_options}
-                </select>
-            </div>
-
-            <div class="text-center">
-                <label class="form-label mb-2 fw-semibold">Metric</label>
-                <select class="form-select shadow-sm" 
-                        aria-label="Metric selection" 
-                        onchange="showBundleMetricPlot(current_bundle, this.value)"
-                        style="min-width: 150px;">
-                    {html_metric_options}
-                </select>
-            </div>
-        </div>
         <script>
-        var div_ids = {json.dumps(all_div_ids)};
+        var all_div_ids = {json.dumps(all_div_ids)};
         var anchors = {json.dumps(anchors)};
-        var current_bundle = "{default_bundle}";
-        var current_metric = "{default_metric}";
 
-        function {render_plot_func}(parentDiv) {{
-            // Find ALL plotly graph divs inside it and resize each
-            setTimeout(() => {{
-                parentDiv.querySelectorAll('.plotly-graph-div').forEach(plotDiv => {{
-                    Plotly.relayout(plotDiv, {{}});
-                }});
-            }}, 0);  // Even 0ms helps by deferring to next event loop
-        }}
-
-        // Placeholder as this is should be implemented in bhattacharyya section
-        var {render_bhatt_func};
-
-        function showBundleMetricPlot(bundle, metric) {{
-            var metric_changed = (metric !== current_metric);
-            current_bundle = bundle;
-            current_metric = metric;
-
+        function {render_dist_plots_func}(bundle, metric) {{
             // Make sure all plot divs are hidden before showing the selected one
-            div_ids.forEach(function(divId) {{
+            all_div_ids.forEach(function(divId) {{
                 document.getElementById(divId).style.display = 'none';
             }});
             
@@ -193,24 +146,14 @@ class DistributionSection(Section):
 
             const subPlotsParentDiv = document.getElementById(selected_div_id);
             {render_plot_func}(subPlotsParentDiv);
-
-            // Also render the bhattacharyya_plot_div plot if the metric is changed
-            // and the function is defined.
-            if (metric_changed && {render_bhatt_func}) {{
-                {render_bhatt_func}(metric);
-            }}
         }}
         </script>
         """
 
         data = HtmlContent(
-            content=html_script + plots_html_content,
+            content=plots_html_content + html_script,
             metadata={
-                "default_bundle": default_bundle,
-                "default_metric": default_metric,
-                "render_bhatt_func": render_bhatt_func,
-                "render_plot_func": render_plot_func
-
+                "render_bundle_metric_hook": render_dist_plots_func
             }
         )
 

@@ -22,14 +22,12 @@ All modules feature configurable thresholds, status indicators (pass/warn/fail),
 ## Installation
 
 ```bash
-pip install multiqc
 pip install git+https://github.com/nf-neuro/MultiQC_neuroimaging.git
 ```
 
 For development:
 
 ```bash
-pip install multiqc
 git clone https://github.com/nf-neuro/MultiQC_neuroimaging.git
 cd neuroimaging
 pip install -e ".[dev]"
