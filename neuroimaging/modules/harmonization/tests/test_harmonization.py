@@ -115,12 +115,13 @@ def test_harmonization_module_run(reset_multiqc, test_data_dir):
     module = MultiqcModule()
     
     assert module is not None
-    # Should add two sections: Distribution and Battacharyya
+    # Should add three sections: Selection, Distribution and Battacharyya
     # module.sections contains the sections added by the module
-    assert len(module.sections) == 2
+    assert len(module.sections) == 3
     
-    dist_section = module.sections[0]
-    batt_section = module.sections[1]
+    select_section = module.sections[0]
+    dist_section = module.sections[1]
+    batt_section = module.sections[2]
     
     assert "Distributional results" in dist_section.name
     assert "Mean Bhattacharyya distance (BD)" in batt_section.name
@@ -181,7 +182,16 @@ def test_harmonization_module_filtering(reset_multiqc, test_data_dir):
         def __init__(self, *args): pass
         def filter_bundles(self, bundles): self.bundles = [b for b in self.bundles if b in bundles]
         def filter_metrics(self, metrics): self.metrics = [m for m in self.metrics if m in metrics]
-        def build_html(self): return type("HtmlContent", (), {"content": "", "metadata": {"default_metric": "fa", "render_bhatt_func": "", "render_plot_func": ""}})()
+        def build_html(self, *args, **kwargs): 
+            return type("HtmlContent", (), {
+                "content": "", 
+                "metadata": {
+                    "default_metric": "fa", 
+                    "render_bhatt_func": "", 
+                    "render_plot_func": "",
+                    "render_bundle_metric_hook": "mock_dist_hook"
+                }
+            })()
     
     class MockBattSection:
         bundles = ["Bundle1"]
@@ -192,7 +202,13 @@ def test_harmonization_module_filtering(reset_multiqc, test_data_dir):
         def __init__(self, *args): pass
         def filter_bundles(self, bundles): self.bundles = [b for b in self.bundles if b in bundles]
         def filter_metrics(self, metrics): self.metrics = [m for m in self.metrics if m in metrics]
-        def build_html(self, *args, **kwargs): return type("HtmlContent", (), {"content": "", "metadata": {}})()
+        def build_html(self, *args, **kwargs): 
+            return type("HtmlContent", (), {
+                "content": "", 
+                "metadata": {
+                    "render_metric_hook": "mock_batt_hook"
+                }
+            })()
 
     # Monkeypatch the classes
     from neuroimaging.modules.harmonization import harmonization
@@ -201,19 +217,22 @@ def test_harmonization_module_filtering(reset_multiqc, test_data_dir):
     harmonization.DistributionSection = MockDistSection
     harmonization.BattacharyyaSection = MockBattSection
     
-    module = MultiqcModule()
+    try:
+        module = MultiqcModule()
 
-    # The __init__ of MultiqcModule will create instances of the mocked sections.
-    # We can't directly access them to verify attributes.
-    # But since we asserted consistency inside module, if they diverged it would fail.
-    # And we know they start with ["fa", "md"]. If filtering works, they become ["fa"].
-    
-    assert module is not None
-    assert len(module.sections) == 2
-    
-    # Restore original classes
-    harmonization.DistributionSection = original_dist
-    harmonization.BattacharyyaSection = original_batt
+        # The __init__ of MultiqcModule will create instances of the mocked sections.
+        # We can't directly access them to verify attributes.
+        # But since we asserted consistency inside module, if they diverged it would fail.
+        # And we know they start with ["fa", "md"]. If filtering works, they become ["fa"].
+        
+        assert module is not None
+        # Should expect 3 sections if filtering works correctly and both sections are active
+        assert len(module.sections) == 3
+        
+    finally:
+        # Restore original classes
+        harmonization.DistributionSection = original_dist
+        harmonization.BattacharyyaSection = original_batt
 
 def test_harmonization_mismatched_sections(reset_multiqc, test_data_dir):
     """Test assertion error when sections have mismatched bundles/metrics."""
@@ -235,3 +254,67 @@ def test_harmonization_mismatched_sections(reset_multiqc, test_data_dir):
 
     with pytest.raises(AssertionError, match="metrics available.*do not match"):
         MultiqcModule()
+
+def test_harmonization_module_dist_only(reset_multiqc, test_data_dir):
+    """Test that the module works when only distribution files are present."""
+    from neuroimaging.modules.harmonization.harmonization import MultiqcModule
+
+    # Remove Bhattacharyya files from report.files logic
+    # We do this by removing them from the directory before populating report.files
+    # But test_data_dir is a fixture, modifying it affects the current test run.
+    # It's a directory, so we can delete files.
+    os.remove(os.path.join(test_data_dir, "Site1.fa.raw.bhattacharyya.txt"))
+    os.remove(os.path.join(test_data_dir, "Site1.fa.harmonized.bhattacharyya.txt"))
+    # Also ensure no 'md' mock file exists if it was created in previous tests 
+    # (though fixtures re-run for each test function usually? yes, if not scoped 'module')
+    # test_data_dir is scoped implicitly as 'function' (default)
+    
+    config.analysis_dir = [test_data_dir]
+    config.kwargs = {"single_subject": False}
+    
+    populate_report_files(test_data_dir)
+    
+    module = MultiqcModule()
+    
+    assert module is not None
+    # Should have Selection + Distribution sections (2)
+    assert len(module.sections) == 2
+    
+    # Check section names
+    section_names = [s.name for s in module.sections]
+    # Use partial matching because Selection section name might not be hardcoded in verification plan details
+    # but existing code for dist section has "Distributional results"
+    assert any("Distributional results" in name for name in section_names)
+    assert not any("Mean Bhattacharyya distance (BD)" in name for name in section_names)
+
+def test_harmonization_module_batt_only(reset_multiqc, test_data_dir):
+    """Test that the module works when only Bhattacharyya files are present."""
+    from neuroimaging.modules.harmonization.harmonization import MultiqcModule
+
+    # Remove Distribution files
+    files_to_remove = [
+        "data.reference.tsv", 
+        "data_stats.tsv", # raw stats
+        "data.harmonized.tsv", 
+        "DataModels.json", 
+        "AgeCurve.json"
+    ]
+    for f in files_to_remove:
+        path = os.path.join(test_data_dir, f)
+        if os.path.exists(path):
+            os.remove(path)
+            
+    config.analysis_dir = [test_data_dir]
+    config.kwargs = {"single_subject": False}
+    
+    populate_report_files(test_data_dir)
+    
+    module = MultiqcModule()
+    
+    assert module is not None
+    # Should have Selection + Bhattacharyya sections (2)
+    assert len(module.sections) == 2
+    
+    section_names = [s.name for s in module.sections]
+    assert any("Mean Bhattacharyya distance (BD)" in name for name in section_names)
+    assert not any("Distributional results" in name for name in section_names)

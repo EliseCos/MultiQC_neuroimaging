@@ -113,7 +113,6 @@ def test_battacharyya_build_html(reset_multiqc, test_data_dir):
     
     html_content = section.build_html(
         default_metric="metric1",
-        render_bhatt_func="renderBhatt",
         render_plot_func="renderPlot"
     )
 

@@ -236,20 +236,17 @@ def test_distribution_build_html(reset_multiqc, test_data_dir):
     files = get_dist_files(test_data_dir)
     section = DistributionSection(*files)
     
-    html_content = section.build_html()
+    html_content = section.build_html(
+        default_bundle=section.bundles[0],
+        default_metric=list(section.metrics)[0],
+        render_plot_func="renderPlot"
+    )
     
     assert html_content is not None
     assert isinstance(html_content.content, str)
     
-    # Check for presence of key elements
-    assert '<select class="form-select shadow-sm"' in html_content.content
-    assert 'showBundleMetricPlot(this.value, current_metric)' in html_content.content
-    assert f'var current_bundle = "{section.bundles[0]}";' in html_content.content
-    assert f'var current_metric = "{list(section.metrics)[0]}";' in html_content.content
+    # Check that plotly graph divs are present
     assert 'plotly-graph-div' in html_content.content
     
     # Check metadata
-    assert "default_bundle" in html_content.metadata
-    assert "default_metric" in html_content.metadata
-    assert "render_bhatt_func" in html_content.metadata
-    assert "render_plot_func" in html_content.metadata
+    assert "render_bundle_metric_hook" in html_content.metadata
