@@ -1,12 +1,16 @@
 from neuroimaging.modules.harmonization.sections.section import Section, HtmlContent
 import logging
+
 log = logging.getLogger("multiqc")
+
+
 class SelectionSection(Section):
     """
     This section contains the button and the main javascript code
     to select the bundles and metrics to display in the harmonization
     results section.
     """
+
     def __init__(self):
         super().__init__()
 
@@ -54,16 +58,16 @@ class SelectionSection(Section):
                 label="Bundle",
                 options=self.bundles,
                 onchange_call="bundleMetricChanged(this.value, current_metric)",
-                default_option=self.default_bundle
+                default_option=self.default_bundle,
             )
-        
+
         html_metric_dropdown = ""
         if len(self.metrics) > 0:
             html_metric_dropdown = self._build_dropdown(
                 label="Metric",
                 options=self.metrics,
                 onchange_call="bundleMetricChanged(current_bundle, this.value)",
-                default_option=self.default_metric
+                default_option=self.default_metric,
             )
 
         html_script = f"""
@@ -104,12 +108,9 @@ class SelectionSection(Section):
         </script>
         """
 
-        html_content = HtmlContent(
-            content=html_script,
-            metadata={}
-        )
+        html_content = HtmlContent(content=html_script, metadata={})
         return html_content
-    
+
     def _build_dropdown(self, label: str, options: set, onchange_call: str, default_option: str) -> str:
         """Helper function to build a dropdown HTML element."""
         html_options = "".join(

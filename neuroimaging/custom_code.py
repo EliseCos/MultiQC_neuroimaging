@@ -74,7 +74,7 @@ def neuroimaging_execution_start():
             config.sp,
             {"harmonization/reference_stats": {"fn": "*.reference.tsv"}},
         )
-    
+
     if "harmonization/harmonized_stats" not in config.sp:
         config.update_dict(
             config.sp,
@@ -95,13 +95,13 @@ def neuroimaging_execution_start():
             config.sp,
             {"harmonization/data_models_plots": {"fn": "DataModels*.json"}},
         )
-    
+
     if "harmonization/harmonization_plots" not in config.sp:
         config.update_dict(
             config.sp,
             {"harmonization/harmonization_plots": {"fn": "AgeCurve*.json"}},
         )
-    
+
     if "harmonization/harmonization_distance" not in config.sp:
         config.update_dict(
             config.sp,

@@ -13,66 +13,66 @@ from neuroimaging.modules.harmonization.plotjson import PlotJsonAggregator
 
 log = logging.getLogger("multiqc")
 
+
 class DistributionSection(SectionBundleMetric):
-    REF_STATS_SP_KEY            = "harmonization/reference_stats"
-    RAW_STATS_SP_KEY            = "harmonization/raw_stats"
-    HARMONIZED_STATS_SP_KEY     = "harmonization/harmonized_stats"
-    DATA_MODELS_PLOTS_SP_KEY    = "harmonization/data_models_plots"
-    HARMONIZATION_PLOTS_SP_KEY  = "harmonization/harmonization_plots"
+    REF_STATS_SP_KEY = "harmonization/reference_stats"
+    RAW_STATS_SP_KEY = "harmonization/raw_stats"
+    HARMONIZED_STATS_SP_KEY = "harmonization/harmonized_stats"
+    DATA_MODELS_PLOTS_SP_KEY = "harmonization/data_models_plots"
+    HARMONIZATION_PLOTS_SP_KEY = "harmonization/harmonization_plots"
 
     def __init__(
-        self,
-        ref_stats_file,
-        raw_stats_files,
-        harmonized_stats_files,
-        data_model_plots_files,
-        harmonization_plots_files
+        self, ref_stats_file, raw_stats_files, harmonized_stats_files, data_model_plots_files, harmonization_plots_files
     ):
         super().__init__()
-        self.ref_df        = load_sites_data(ref_stats_file)
-        self.raw_df        = load_sites_data(raw_stats_files)
+        self.ref_df = load_sites_data(ref_stats_file)
+        self.raw_df = load_sites_data(raw_stats_files)
         self.harmonized_df = load_sites_data(harmonized_stats_files)
-        
+
         # Read plot data from JSON files and aggregate
-        self.data_model_json    = PlotJsonAggregator.from_json(list(map(lambda f: f["f"], data_model_plots_files)))
+        self.data_model_json = PlotJsonAggregator.from_json(list(map(lambda f: f["f"], data_model_plots_files)))
         self.harmonization_json = PlotJsonAggregator.from_json(list(map(lambda f: f["f"], harmonization_plots_files)))
 
         # Extract list of metrics and non-metric columns
         headers = set(self.harmonized_df.columns)
         meta_columns = set(["site", "age", "sex", "handedness", "disease"])
         non_metric_columns = set(["sample", "roi"]) | meta_columns
-        
+
         self.metrics = headers - non_metric_columns
         self.bundles = list(self.harmonized_df["roi"].unique())
 
         # Verify that the raw_df and harmonized_df have the same samples
-        assert set(self.raw_df["sample"]) == set(self.harmonized_df["sample"]), \
+        assert set(self.raw_df["sample"]) == set(self.harmonized_df["sample"]), (
             "The raw and harmonized data files must contain the same samples."
-        
+        )
+
         # Verify that the raw and harmonized data have the same ROIs
-        assert set(self.raw_df["roi"]) == set(self.harmonized_df["roi"]), \
+        assert set(self.raw_df["roi"]) == set(self.harmonized_df["roi"]), (
             "The raw and harmonized data files must contain the same ROIs."
-        
+        )
+
         # Verify that the dataframes and the jsons have the same ROIs and metrics
         for bundle in self.bundles:
             for metric in self.metrics:
-                assert bundle in self.data_model_json.data, \
-                    f"The bundle {bundle} is missing from the data model JSON."
-                assert metric in self.data_model_json.data[bundle], \
+                assert bundle in self.data_model_json.data, f"The bundle {bundle} is missing from the data model JSON."
+                assert metric in self.data_model_json.data[bundle], (
                     f"The metric {metric} is missing from the data model JSON for bundle {bundle}."
-                assert bundle in self.harmonization_json.data, \
+                )
+                assert bundle in self.harmonization_json.data, (
                     f"The bundle {bundle} is missing from the harmonization JSON."
-                assert metric in self.harmonization_json.data[bundle], \
+                )
+                assert metric in self.harmonization_json.data[bundle], (
                     f"The metric {metric} is missing from the harmonization JSON for bundle {bundle}."
-    
+                )
+
     @property
     def name(self):
         return "Distributional results"
-    
+
     @property
     def anchor(self):
         return "harmonization_distributions"
-    
+
     @property
     def description(self):
         return """
@@ -87,15 +87,15 @@ class DistributionSection(SectionBundleMetric):
     def get_metrics(self):
         """Get the list of metrics available for plotting."""
         return sorted(list(self.metrics))
-    
+
     def filter_metrics(self, metrics_to_keep):
         """Filter the metrics to keep only those specified."""
         self.metrics = set(metrics_to_keep) & self.metrics
-    
+
     def get_bundles(self):
         """Get the list of bundles available for plotting."""
         return sorted(self.bundles)
-    
+
     def filter_bundles(self, bundles_to_keep):
         """Filter the bundles to keep only those specified."""
         self.bundles = list(set(bundles_to_keep) & set(self.bundles))
@@ -151,10 +151,7 @@ class DistributionSection(SectionBundleMetric):
         """
 
         data = HtmlContent(
-            content=plots_html_content + html_script,
-            metadata={
-                "render_bundle_metric_hook": render_dist_plots_func
-            }
+            content=plots_html_content + html_script, metadata={"render_bundle_metric_hook": render_dist_plots_func}
         )
 
         return data
@@ -163,13 +160,13 @@ class DistributionSection(SectionBundleMetric):
         div_id = f"{bundle.replace(' ', '-')}_{metric.replace(' ', '-')}"
         # Generate the 3 individual plots
         # Note: Use unique IDs to prevent DOM conflicts!
-        
+
         fig = make_subplots(
             rows=1,
             cols=3,
             shared_yaxes=True,
             horizontal_spacing=0.025,
-            subplot_titles=("Data Model", "Pre-Harmonization", "Post-Harmonization")
+            subplot_titles=("Data Model", "Pre-Harmonization", "Post-Harmonization"),
         )
 
         self.create_datamodel_figure(bundle, metric, fig=fig, row=1, col=1)
@@ -186,7 +183,7 @@ class DistributionSection(SectionBundleMetric):
             legend_xanchor="center",
             legend_x=0.5,
             margin_b=40,
-            height=500
+            height=500,
         )
 
         fig.update_xaxes(title_text="Age")
@@ -198,9 +195,9 @@ class DistributionSection(SectionBundleMetric):
             {pio.to_html(fig, full_html=False, include_plotlyjs=False)}
         </div>
         """,
-        div_id,
+            div_id,
         )
-    
+
     ########################################
     # DataModel plot
     ########################################
@@ -209,11 +206,17 @@ class DistributionSection(SectionBundleMetric):
         raw_data = self.raw_df[self.raw_df["roi"] == bundle]
 
         plot_json = self.data_model_json.data[bundle][metric]
-        ref_color = to_plotly_rgb(plot_json["regression_reference"]["color"]) \
-            if "regression_reference" in plot_json and "color" in plot_json["regression_reference"] else PALETTE[0]
-        moving_color = to_plotly_rgb(plot_json["regression_moving"]["color"]) \
-            if "regression_moving" in plot_json and "color" in plot_json["regression_moving"] else PALETTE[1]
-        
+        ref_color = (
+            to_plotly_rgb(plot_json["regression_reference"]["color"])
+            if "regression_reference" in plot_json and "color" in plot_json["regression_reference"]
+            else PALETTE[0]
+        )
+        moving_color = (
+            to_plotly_rgb(plot_json["regression_moving"]["color"])
+            if "regression_moving" in plot_json and "color" in plot_json["regression_moving"]
+            else PALETTE[1]
+        )
+
         reference_name = f"{plot_json['regression_reference']['site']} (reference)"
         moving_name = f"{plot_json['regression_moving']['site']} (moving)"
 
@@ -226,10 +229,10 @@ class DistributionSection(SectionBundleMetric):
                 text=ref_data["sample"],
                 marker=dict(color=ref_color),
                 name=reference_name,
-                legendgroup="reference_group"
+                legendgroup="reference_group",
             ),
             row=row,
-            col=col
+            col=col,
         )
 
         # Add (raw) moving scatter
@@ -241,10 +244,10 @@ class DistributionSection(SectionBundleMetric):
                 text=raw_data["sample"],
                 marker=dict(color=moving_color),
                 name=moving_name,
-                legendgroup="moving_group"
+                legendgroup="moving_group",
             ),
             row=row,
-            col=col
+            col=col,
         )
 
         # Add reference regression line which was calculated by Clinical-Combat
@@ -258,10 +261,10 @@ class DistributionSection(SectionBundleMetric):
                 name=reference_name + " - regression",
                 line=dict(color=ref_color),
                 legendgroup="reference_group",
-                showlegend=False
+                showlegend=False,
             ),
             row=row,
-            col=col
+            col=col,
         )
 
         mov_x = plot_json["regression_moving"]["data_x"]
@@ -274,12 +277,12 @@ class DistributionSection(SectionBundleMetric):
                 name=moving_name + " - regression",
                 line=dict(color=moving_color),
                 legendgroup="moving_group",
-                showlegend=False
+                showlegend=False,
             ),
             row=row,
-            col=col
+            col=col,
         )
-    
+
     ########################################
     # AgeCurve Raw plot
     ########################################
@@ -291,17 +294,18 @@ class DistributionSection(SectionBundleMetric):
         ############################
         # Reference percentiles
         ############################
-        reference_percentile_plots = plot_json['reference_percentiles']
+        reference_percentile_plots = plot_json["reference_percentiles"]
         ref_median_curve = self._plot_percentiles_and_get_median_curve(
-            reference_percentile_plots, fig, row, col, is_moving=False)
+            reference_percentile_plots, fig, row, col, is_moving=False
+        )
 
         ############################
         # Moving percentiles (raw)
         ############################
-        moving_percentile_plots = plot_json['moving_raw_percentiles']
+        moving_percentile_plots = plot_json["moving_raw_percentiles"]
         mov_median_curve = self._plot_percentiles_and_get_median_curve(
-            moving_percentile_plots, fig, row, col, is_moving=True)
-
+            moving_percentile_plots, fig, row, col, is_moving=True
+        )
 
         ############################
         # Median curves
@@ -309,8 +313,8 @@ class DistributionSection(SectionBundleMetric):
         # Plot the median curves last so they get drawn on top of the filled areas.
         fig.add_trace(
             go.Scatter(
-                x=reference_percentile_plots[ref_median_curve]['data_x'],
-                y=reference_percentile_plots[ref_median_curve]['data_y'],
+                x=reference_percentile_plots[ref_median_curve]["data_x"],
+                y=reference_percentile_plots[ref_median_curve]["data_y"],
                 mode="lines",
                 name="Reference",
                 legendgroup="reference_group",
@@ -318,13 +322,13 @@ class DistributionSection(SectionBundleMetric):
                 line=dict(color=reference_percentile_plots[ref_median_curve]["color"], width=4),
             ),
             row=row,
-            col=col
+            col=col,
         )
 
         fig.add_trace(
             go.Scatter(
-                x=moving_percentile_plots[mov_median_curve]['data_x'],
-                y=moving_percentile_plots[mov_median_curve]['data_y'],
+                x=moving_percentile_plots[mov_median_curve]["data_x"],
+                y=moving_percentile_plots[mov_median_curve]["data_y"],
                 mode="lines",
                 name="Moving",
                 legendgroup="moving_group",
@@ -332,7 +336,7 @@ class DistributionSection(SectionBundleMetric):
                 line=dict(color=moving_percentile_plots[mov_median_curve]["color"], width=4),
             ),
             row=row,
-            col=col
+            col=col,
         )
 
     ########################################
@@ -345,14 +349,18 @@ class DistributionSection(SectionBundleMetric):
         ############################
         # Reference percentiles
         ############################
-        reference_percentile_plots = plot_json['reference_percentiles']
-        ref_median_curve = self._plot_percentiles_and_get_median_curve(reference_percentile_plots, fig, row, col, is_moving=False)
+        reference_percentile_plots = plot_json["reference_percentiles"]
+        ref_median_curve = self._plot_percentiles_and_get_median_curve(
+            reference_percentile_plots, fig, row, col, is_moving=False
+        )
 
         ############################
         # Moving percentiles (harmonized)
         ############################
-        moving_percentile_plots = plot_json['moving_harmonized_percentiles']
-        mov_median_curve = self._plot_percentiles_and_get_median_curve(moving_percentile_plots, fig, row, col, is_moving=True)
+        moving_percentile_plots = plot_json["moving_harmonized_percentiles"]
+        mov_median_curve = self._plot_percentiles_and_get_median_curve(
+            moving_percentile_plots, fig, row, col, is_moving=True
+        )
 
         ############################
         # Median curves
@@ -360,8 +368,8 @@ class DistributionSection(SectionBundleMetric):
         # Plot the median curves last so they get drawn on top of the filled areas.
         fig.add_trace(
             go.Scatter(
-                x=reference_percentile_plots[ref_median_curve]['data_x'],
-                y=reference_percentile_plots[ref_median_curve]['data_y'],
+                x=reference_percentile_plots[ref_median_curve]["data_x"],
+                y=reference_percentile_plots[ref_median_curve]["data_y"],
                 mode="lines",
                 name="Reference",
                 legendgroup="reference_group",
@@ -369,13 +377,13 @@ class DistributionSection(SectionBundleMetric):
                 line=dict(color=reference_percentile_plots[ref_median_curve]["color"], width=4),
             ),
             row=row,
-            col=col
+            col=col,
         )
 
         fig.add_trace(
             go.Scatter(
-                x=moving_percentile_plots[mov_median_curve]['data_x'],
-                y=moving_percentile_plots[mov_median_curve]['data_y'],
+                x=moving_percentile_plots[mov_median_curve]["data_x"],
+                y=moving_percentile_plots[mov_median_curve]["data_y"],
                 mode="lines",
                 name="Moving",
                 legendgroup="moving_group",
@@ -383,17 +391,19 @@ class DistributionSection(SectionBundleMetric):
                 line=dict(color=moving_percentile_plots[mov_median_curve]["color"], width=4),
             ),
             row=row,
-            col=col
+            col=col,
         )
 
-    def _plot_percentiles_and_get_median_curve(self, data: dict, fig: go.Figure, row: int, col: int, is_moving: bool) -> dict:
+    def _plot_percentiles_and_get_median_curve(
+        self, data: dict, fig: go.Figure, row: int, col: int, is_moving: bool
+    ) -> dict:
         """
         This is a helper function to plot percentile filled areas on the given figure.
         We expect an odd number of percentiles so that there is a middle percentile (50)
         representing the median. This function fills the area between matching percentiles
         (e.g., 5th and 95th, 10th and 90th, etc.) and returns the key data to plot the median curve.
         We do not plot the median curve here to ensure it is drawn on top of the filled areas.
-        
+
         :param data: Input dictionnary containing percentile curves information. We expect
             each key to be a percentile plot name (we expect an odd number of percentiles,
             which includes a percentile 50 for the median) and each value to be a dict with
@@ -422,33 +432,33 @@ class DistributionSection(SectionBundleMetric):
             raise ValueError("The number of percentiles must be odd to have a main/mean percentile.")
 
         middle = len(available_percentiles) // 2
-        other_percentiles = available_percentiles[:middle] + available_percentiles[middle+1:]
+        other_percentiles = available_percentiles[:middle] + available_percentiles[middle + 1 :]
 
         # Make sure the 5th percentile is matched with the 95th, 10th with 90th, etc.
-        for i in range(len(other_percentiles)//2):
+        for i in range(len(other_percentiles) // 2):
             p1_name = other_percentiles[i]
-            p2_name = other_percentiles[-(i+1)]
+            p2_name = other_percentiles[-(i + 1)]
 
             p1 = data[p1_name]
             p2 = data[p2_name]
-            
+
             # We need to fill the area between p1 and p2
             fig.add_trace(
                 go.Scatter(
-                    x=p1['data_x'] + p2['data_x'][::-1],
-                    y=p1['data_y'] + p2['data_y'][::-1],
-                    fill='toself',
+                    x=p1["data_x"] + p2["data_x"][::-1],
+                    y=p1["data_y"] + p2["data_y"][::-1],
+                    fill="toself",
                     fillcolor=p1["color"],
-                    line=dict(color='rgba(255,255,255,0)'),
+                    line=dict(color="rgba(255,255,255,0)"),
                     name=f"{'Moving' if is_moving else 'Reference'} {p1['percentile']}th - {p2['percentile']}th percentile",
                     legendgroup=f"{'moving_group' if is_moving else 'reference_group'}",
                     showlegend=False,
-                    opacity=0.2
+                    opacity=0.2,
                 ),
                 row=row,
-                col=col
+                col=col,
             )
-        
+
         median_key = available_percentiles[middle]
 
         return median_key

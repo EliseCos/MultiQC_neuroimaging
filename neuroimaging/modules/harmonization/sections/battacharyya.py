@@ -7,8 +7,9 @@ import plotly.io as pio
 
 from neuroimaging.modules.harmonization.sections.section import SectionBundleMetric, HtmlContent
 
+
 class BattacharyyaSection(SectionBundleMetric):
-    HARMONIZATION_DISTANCE_SP_KEY  = "harmonization/harmonization_distance"
+    HARMONIZATION_DISTANCE_SP_KEY = "harmonization/harmonization_distance"
 
     def __init__(self, files):
         super().__init__()
@@ -25,7 +26,10 @@ class BattacharyyaSection(SectionBundleMetric):
         # Exception: for some reason, the first column contains the subject/sample count
         # of healthly controls for that site, so we will discard that column as we have no
         # use for it at the moment.
-        self.data = {"raw": defaultdict(lambda: defaultdict(list)), "harmonized": defaultdict(lambda: defaultdict(list))}
+        self.data = {
+            "raw": defaultdict(lambda: defaultdict(list)),
+            "harmonized": defaultdict(lambda: defaultdict(list)),
+        }
         self.metrics = set()
         self.bundles = set()
         for f in self.harmonization_distance_files:
@@ -34,18 +38,20 @@ class BattacharyyaSection(SectionBundleMetric):
 
             if len(lines) < 2:
                 raise ValueError(f"Bhattacharyya distance file {filename} must contain at least two lines.")
-            
-            bundles     = lines[0].strip().split()[1:]  # Skip first column (sample count)
-            distances   = lines[1].strip().split()[1:]  # Skip first column (sample count)
+
+            bundles = lines[0].strip().split()[1:]  # Skip first column (sample count)
+            distances = lines[1].strip().split()[1:]  # Skip first column (sample count)
 
             if len(bundles) != len(distances):
-                raise ValueError(f"Bhattacharyya distance file {filename} has mismatched number of bundles and distances.")
-            
+                raise ValueError(
+                    f"Bhattacharyya distance file {filename} has mismatched number of bundles and distances."
+                )
+
             # Extract site, metric, and harmonization status from filename
             parts = os.path.basename(filename).split(".")
             if len(parts) < 4:
                 raise ValueError(f"Bhattacharyya distance filename {filename} is not in the expected format.")
-            
+
             self.bundles.update(set(bundles))
 
             metric = parts[1]
@@ -59,15 +65,14 @@ class BattacharyyaSection(SectionBundleMetric):
         # Create the boxplot using Plotly
         self.metrics = self.data["raw"].keys() | self.data["harmonized"].keys()
 
-    
     @property
     def name(self):
         return "Mean Bhattacharyya distance (BD)"
-    
+
     @property
     def anchor(self):
         return "harmonization_bhattacharyya"
-    
+
     @property
     def description(self):
         return """
@@ -81,15 +86,15 @@ class BattacharyyaSection(SectionBundleMetric):
     def get_metrics(self):
         """Get the list of metrics available for plotting."""
         return sorted(list(self.metrics))
-    
+
     def filter_metrics(self, metrics_to_keep):
         """Filter the metrics to keep only those specified."""
         self.metrics = set(metrics_to_keep) & self.metrics
-    
+
     def get_bundles(self):
         """Get the list of bundles available for plotting."""
         return sorted(self.bundles)
-    
+
     def filter_bundles(self, bundles_to_keep):
         """Filter the bundles to keep only those specified."""
         self.bundles = list(set(bundles_to_keep) & set(self.bundles))
@@ -117,7 +122,7 @@ class BattacharyyaSection(SectionBundleMetric):
                         boxmean=True,
                         marker_color="darkblue",
                         text=self.data["raw"][metric]["bundles"],
-                        boxpoints="all"
+                        boxpoints="all",
                     )
                 )
 
@@ -130,7 +135,7 @@ class BattacharyyaSection(SectionBundleMetric):
                         marker_color="#FF7C00",
                         text=self.data["harmonized"][metric]["bundles"],
                         boxmean=True,
-                        boxpoints="all"
+                        boxpoints="all",
                     )
                 )
 
@@ -140,7 +145,7 @@ class BattacharyyaSection(SectionBundleMetric):
                 title_x=0.5,
                 yaxis_title="Bhattacharyya Distance",
                 height=500,
-                legend_visible=False
+                legend_visible=False,
             )
 
             b_div_id = f"bhattacharyya_{metric.replace(' ', '-')}"
@@ -151,7 +156,7 @@ class BattacharyyaSection(SectionBundleMetric):
                 {pio.to_html(fig, full_html=False, include_plotlyjs=False)}
             </div>
             """
-        
+
         render_bhatt_func = "renderBhattPlots"
 
         bhattacharyya_html_script = f"""
@@ -173,8 +178,6 @@ class BattacharyyaSection(SectionBundleMetric):
 
         data = HtmlContent(
             content=bhattacharyya_html_content + bhattacharyya_html_script,
-            metadata={
-                "render_metric_hook": render_bhatt_func
-            }
+            metadata={"render_metric_hook": render_bhatt_func},
         )
         return data

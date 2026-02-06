@@ -43,9 +43,11 @@ PALETTE = [
     "#6A5ACD",
 ] * 10
 
+
 def to_plotly_rgb(rgb_values):
-    """ From a list of 3 integers representing RGB values, return a Plotly-compatible RGB string. """
+    """From a list of 3 integers representing RGB values, return a Plotly-compatible RGB string."""
     return f"rgb({rgb_values[0]}, {rgb_values[1]}, {rgb_values[2]})"
+
 
 def load_sites_data(files) -> pd.DataFrame:
     """Parse a TSV file and return its contents as a dictionary."""
