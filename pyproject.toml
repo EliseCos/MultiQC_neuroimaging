@@ -31,6 +31,9 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Neuroimaging",
     "Topic :: Scientific/Engineering :: Visualization",
 ]
+dependencies = [
+    "multiqc", "pandas", "plotly"
+]
 
 [tool.setuptools]
 packages = [
@@ -38,6 +41,8 @@ packages = [
     "neuroimaging.modules",
     "neuroimaging.modules.tractometry",
     "neuroimaging.modules.metricsinroi",
+    "neuroimaging.modules.harmonization",
+    "neuroimaging.modules.harmonization.sections",
     "neuroimaging.modules.cortical",
     "neuroimaging.modules.subcortical",
     "neuroimaging.modules.framewise_displacement",
@@ -64,6 +69,7 @@ framewise_displacement = "neuroimaging.modules.framewise_displacement:MultiqcMod
 coverage = "neuroimaging.modules.coverage:MultiqcModule"
 streamline_count = "neuroimaging.modules.streamline_count:MultiqcModule"
 metricsinroi = "neuroimaging.modules.metricsinroi:MultiqcModule"
+harmonization = "neuroimaging.modules.harmonization.harmonization:MultiqcModule"
 
 [project.entry-points."multiqc.cli_options.v1"]
 single_subject = "neuroimaging.cli:single_subject"

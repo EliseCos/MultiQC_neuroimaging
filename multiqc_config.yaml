@@ -45,6 +45,7 @@ module_order:
   - streamline_count
   - tractometry
   - metricsinroi
+  - harmonization
   - cortical
   - subcortical
 
@@ -58,9 +59,26 @@ sp:
     fn: "*streamline_count.tsv"
   tractometry:
     fn: "*bundles_mean_stats.tsv"
+    shared: true
   cortical/volume:
     fn: "cortical_*_volume_*.tsv"
   subcortical/volume:
     fn: "subcortical_*_volume_*.tsv"
   metricsinroi:
-    fn: "rois_mean_stats.tsv"
+    fn: "*mean_desc-roi_stats.tsv"
+    shared: true
+  harmonization/reference_stats:
+    fn: "*.reference.tsv"
+  harmonization/harmonized_stats:
+    fn: "*.harmonized.tsv"
+  harmonization/raw_stats:
+    - fn: "*mean_desc-roi_stats.tsv"
+      shared: true
+    - fn: "*bundles_mean_stats.tsv"
+      shared: true
+  harmonization/data_models_plots:
+    fn: "DataModels*.json"
+  harmonization/harmonization_plots:
+    fn: "AgeCurve*.json"
+  harmonization/harmonization_distance:
+    fn: "*.bhattacharrya.txt"
