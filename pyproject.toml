@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "neuroimaging"
-version = "0.1"
+version = "0.1.0"
 authors = [
     {name = "Anthony Gagnon", email = "anthony.gagnon7@usherbrooke.ca"},
 ]
