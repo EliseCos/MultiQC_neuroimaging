@@ -14,6 +14,7 @@ from multiqc import BaseMultiqcModule, config, report
 # List of all neuroimaging modules
 modules = [
     ("tractometry", "neuroimaging.modules.tractometry:MultiqcModule"),
+    ("connectivity", "neuroimaging.modules.connectivity:MultiqcModule"),
     ("cortical", "neuroimaging.modules.cortical:MultiqcModule"),
     ("subcortical", "neuroimaging.modules.subcortical:MultiqcModule"),
     (

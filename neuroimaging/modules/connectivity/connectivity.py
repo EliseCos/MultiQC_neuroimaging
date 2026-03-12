@@ -16,6 +16,7 @@ For subject reports, it visualizes the individual connectivity
 matrix as a heatmap.
 """
 
+import json
 import logging
 import re
 from typing import Dict
@@ -24,7 +25,7 @@ import numpy as np
 
 from multiqc import config
 from multiqc.base_module import BaseMultiqcModule, ModuleNoSamplesFound
-from multiqc.plots import heatmap, violin
+from multiqc.plots import heatmap
 
 log = logging.getLogger(__name__)
 
@@ -33,60 +34,202 @@ class MultiqcModule(BaseMultiqcModule):
     """ "MultiQC module for connectivity matrices."""
 
     def __init__(self):
+        #  Get the single-subject mode if set.
+        single_subject_mode = config.kwargs.get("single_subject", False)
+
+        # Tailor the module description based on the mode
+        if single_subject_mode:
+            module_info = (
+                "Visualization of individual structural connectivity matrices for detailed quality inspection. "
+                "Each connectivity matrix is displayed as a heatmap showing diffusion metric between brain regions. "
+                "Assess the matrix for bilateral symmetry, anatomical plausibility, isolated regions, and unexpected artifacts. "
+                "The density (proportion of non-zero connections) provides a summary metric for overall connectivity. "
+                "If multiple diffusion metrics (FA, MD, RD, AD) are available, separate heatmaps are generated for comparison."
+            )
+        else:
+            module_info = (
+                "Comprehensive cohort-level assessment of structural connectivity matrices for quality control. "
+                "For each subject, the density of the connectivity matrix (proportion of non-zero connections) is computed "
+                "to identify subjects with unusually sparse or dense connectomes that may indicate processing issues. "
+                "Subjects are automatically flagged based on statistical outlier detection (IQR method: fail beyond 1.5×IQR, warn beyond Q1/Q3). "
+                "The frequency matrix visualizes connection consistency across all subjects, helping identify "
+                "systematic connectivity patterns and potential anatomical or processing artifacts. "
+                "High-frequency connections indicate consistent structural pathways, while extremely low frequencies may suggest tractography or thresholding issues."
+            )
+
         super(MultiqcModule, self).__init__(
             name="Structural Connectivity",
             anchor="connectivity",
             href="https://github.com/nf-neuro/MultiQC_neuroimaging",
-            info="Assessment of structural connectivity for quality control."
-            " For each subject, the density of the connectivity matrix is computed,"
-            " and subjects with unusually low density are flagged. Additionally,"
-            " the average connectivity matrix across all subjects is visualized.",
+            info=module_info,
         )
 
-        #  Get the single-subject mode if set.
-        single_subject_mode = config.get("single_subject", False)
-
         # Find and parse connectivity matrix files
+        metrics_filter = getattr(config, "connectivity", {}).get("metrics", ["fa", "md", "rd", "commit"])
         conn_data = {}
-        config_fp = config.sp.get("connectivity", {}).get("fn", "")
-        for f in self.find_log_files("connectivity"):
-            parsed = self.parse_connectivity_file(f, config_fp)
-            if parsed:
-                sample_name = parsed["sample_name"]
-                conn_data[sample_name] = parsed["values"]
+        for f in self.find_log_files("connectivity/matrices"):
+            if any(metric in f["fn"] for metric in metrics_filter):
+                # Extract the metric that matched
+                metric = next(metric for metric in metrics_filter if metric in f["fn"])
+                parsed = self.parse_connectivity_file(f)
+                if parsed:
+                    sample_name = parsed["sample_name"]
+                    # Support multiple metrics per sample
+                    if sample_name not in conn_data:
+                        conn_data[sample_name] = {}
+                    conn_data[sample_name][metric] = parsed["values"]
+
+        # Find LUT files.
+        for f in self.find_log_files("connectivity/lut"):
+            # Just need to load a single JSON file to get the LUT,
+            # so we can break after the first one.
+            with open(f["root"] + "/" + f["fn"], "r") as fp:
+                lut = json.load(fp)
+            break
 
         # Superfluous function call to confirm that it is used in this module
         # Replace None with actual version if it is available
         self.add_software_version(None)
 
         # Filter by sample names.
-        conn_data = self.filter_samples(conn_data)
+        conn_data = self.ignore_samples(conn_data)
 
         if len(conn_data) == 0:
             raise ModuleNoSamplesFound
 
-        log.info(f"Found {len(conn_data)} samples.")
+        log.info(f"Found {len(conn_data)} samples")
 
         # Generate global plots if not in single-subject mode
         if not single_subject_mode:
-            # Compute densities
-            densities = {s_name: {"density": self.compute_density(matrix)} for s_name, matrix in conn_data.items()}
+            # Compute densities - use the first available metric for each sample
+            densities = {
+                s_name: {"density": self.compute_density(next(iter(metrics.values())))}
+                for s_name, metrics in conn_data.items()
+            }
+
+            # Identify outliers based on density (e.g. using X * IQR rule)
+            config_thresh = getattr(config, "connectivity", {})
+            iqr_multiplier = config_thresh.get("iqr_multiplier", 1.5)
+            density_values = [d["density"] for d in densities.values()]
+            q1, q3 = np.percentile(density_values, [25, 75])
+            iqr = q3 - q1
+
+            lower_bound = q1 - iqr_multiplier * iqr
+            upper_bound = q3 + iqr_multiplier * iqr
+
+            for s_name, d in densities.items():
+                if d["density"] < lower_bound or d["density"] > upper_bound:
+                    d["flag"] = "fail"
+                elif d["density"] < q1 or d["density"] > q3:
+                    d["flag"] = "warn"
+                else:
+                    d["flag"] = "pass"
+
+            status_groups = {"pass": [], "warn": [], "fail": []}
+            for s_name, d in densities.items():
+                status_groups[d["flag"]].append(s_name)
 
             # Add to general stats table.
             self.general_stats_addcols(
                 densities,
                 {
                     "density": {
-                        "title": "Structural Connectivity Density",
+                        "title": "Density",
                         "description": "Density of the connectivity matrix (proportion of non-zero connections).",
-                        "min": min(d["density"] for d in densities.values()),
-                        "max": max(d["density"] for d in densities.values()),
+                        "min": min(d["density"] for d in densities.values()) - 0.1,
+                        "max": max(d["density"] for d in densities.values()) + 0.1,
                         "format": "{:.2f}",
                     }
                 },
             )
+            # Generate the frequency matrix and plot it as a heatmap.
+            freq_mat = self.frequency_matrix(conn_data, tuple((len(lut), len(lut))))
+            self.add_section(
+                name="Connectivity Frequency Matrix",
+                description="This heatmap displays the frequency of connections across all subjects in the cohort. "
+                "Each cell (i, j) represents the proportion of subjects that have a non-zero connection between regions i and j. "
+                "Values range from 0 (purple, connection never present) to 1 (yellow, connection present in all subjects). ",
+                plot=heatmap.plot(
+                    freq_mat,
+                    xcats=[lut.get(str(i + 1)) for i in range(freq_mat.shape[0])],
+                    pconfig={
+                        "id": "connectivity_frequency_matrix",
+                        "title": "Connectivity Frequency Matrix",
+                        "display_values": False,
+                        "xcats_samples": False,
+                        "ycats_samples": False,
+                        # Mimick a viridis colormap.
+                        "colstops": [
+                            [0.0, "#440154"],
+                            [0.25, "#3b528b"],
+                            [0.5, "#21918c"],
+                            [0.75, "#5ec962"],
+                            [1.0, "#fde725"],
+                        ],
+                    },
+                ),
+                statuses=status_groups,
+            )
+        else:
+            # In single-subject mode, just add the individual connectivity matrix as a heatmap.
+            # We assume select the first subject in the dictionary since there should only be one.
+            sample_name, metrics_dict = next(iter(conn_data.items()))
+            if len(metrics_dict) > 1:
+                # Multiple metrics available for this sample
+                for metric, matrix in metrics_dict.items():
+                    self.add_section(
+                        name=f"{metric.upper()} Connectivity Matrix",
+                        description=f"Individual structural connectivity matrix for {sample_name} weighted by the <strong>{metric.upper()}</strong> metric. "
+                        f"Each cell (i, j) represents the diffusion metric between regions i and j. "
+                        f"Values are displayed using a viridis colormap (purple=low, yellow=high). ",
+                        plot=heatmap.plot(
+                            matrix,
+                            xcats=[lut.get(str(i + 1)) for i in range(matrix.shape[0])],
+                            pconfig={
+                                "id": f"{sample_name}_{metric}_connectivity_matrix",
+                                "title": f"{metric.upper()} Connectivity Matrix",
+                                "display_values": False,
+                                "xcats_samples": False,
+                                "ycats_samples": False,
+                                "colstops": [
+                                    [0.0, "#440154"],
+                                    [0.25, "#3b528b"],
+                                    [0.5, "#21918c"],
+                                    [0.75, "#5ec962"],
+                                    [1.0, "#fde725"],
+                                ],
+                            },
+                        ),
+                    )
+            else:
+                # Only one metric available
+                metric, matrix = next(iter(metrics_dict.items()))
+                self.add_section(
+                    name="Connectivity Matrix",
+                    description=f"Individual structural connectivity matrix for {sample_name} weighted by the <strong>{metric.upper()}</strong> metric. "
+                    f"Each cell (i, j) represents the diffusion metric between brain regions i and j. "
+                    f"Values are displayed using a viridis colormap where purple indicates low/no connectivity and yellow indicates high connectivity. ",
+                    plot=heatmap.plot(
+                        matrix,
+                        xcats=[lut.get(str(i + 1)) for i in range(matrix.shape[0])],
+                        pconfig={
+                            "id": f"{sample_name}_connectivity_matrix",
+                            "title": "Connectivity Matrix",
+                            "display_values": False,
+                            "xcats_samples": False,
+                            "ycats_samples": False,
+                            "colstops": [
+                                [0.0, "#440154"],
+                                [0.25, "#3b528b"],
+                                [0.5, "#21918c"],
+                                [0.75, "#5ec962"],
+                                [1.0, "#fde725"],
+                            ],
+                        },
+                    ),
+                )
 
-    def parse_connectivity_file(self, f: str, config_fp: str) -> Dict:
+    def parse_connectivity_file(self, f: str) -> Dict:
         """Parse a connectivity matrix file.
 
         Args:
@@ -96,20 +239,20 @@ class MultiqcModule(BaseMultiqcModule):
         Returns:
             Dict: Parsed data including sample name and connectivity values.
         """
-
-        values = np.load(f)
+        values = np.load(f["root"] + "/" + f["fn"])
 
         # Extract and clean sample name from filename.
-        # Using the pattern from custom_code.py for consistency.
-        # Remove the pattern suffix from filename to get the sample name.
-        filename = f["fn"]
-        pattern_suffix = config_fp.lstrip("*")
-        if pattern_suffix and filename.endswith(pattern_suffix):
-            # Similar to other modules, remove the suffix and any trailing underscores or hyphens.
-            sample_name = re.sub(r"_+$|-+$", "", filename[: -len(pattern_suffix)])
-        else:
-            # Fallback to the default way of cleaning sample names.
+        # Since patterns can vary between atlases and stats, we should manually match
+        # patterns with sub-XXXXX, ses-XXXX, and run-ZZZ assuming BIDS structure.
+        match = re.search(r"sub-[a-zA-Z0-9]+(_ses-[a-zA-Z0-9]+)?(_run-[a-zA-Z0-9]+)?", f["fn"])
+        if match:
+            sample_name = match.group(0)
+        elif "s_name" in f:
+            # If the sample name is already provided in the file metadata, use it.
             sample_name = f["s_name"]
+        elif "fn" in f:
+            # As a last resort, use the filename as the sample name.
+            sample_name = f["fn"]
 
         # Apply MultiQC's sample name cleaning
         sample_name = self.clean_s_name(sample_name, f)
@@ -123,10 +266,39 @@ class MultiqcModule(BaseMultiqcModule):
             matrix (np.ndarray): Connectivity matrix.
 
         Returns:
-            float: Density of the connectivity matrix.
+            float: Density of the connectivity matrix (proportion between 0 and 1).
         """
         # Count non-zero connections
         non_zero_connections = np.count_nonzero(matrix)
         total_connections = matrix.size
-        density = non_zero_connections / total_connections
+        # Compute density and rescale to be between 0 and 1
+        density = non_zero_connections / total_connections if total_connections > 0 else 0
+
         return density
+
+    def frequency_matrix(self, matrices: Dict[str, Dict[str, np.ndarray]], shape: tuple = None) -> np.ndarray:
+        """Compute the frequency of all connections across subjects.
+
+        Args:
+            matrices (Dict[str, Dict[str, np.ndarray]]): Dictionary of sample names and their metrics dictionaries.
+            shape (tuple): Expected shape of the connectivity matrices.
+
+        Returns:
+            np.ndarray: Frequency matrix where each element represents the proportion of subjects
+                        with this connection present.
+        """
+        # Create empty zero matrix to store results.
+        # Get the first matrix from the first sample's first metric
+        first_matrix = next(iter(next(iter(matrices.values())).values()))
+        freq_mat = np.zeros(shape if shape else first_matrix.shape)
+
+        for sub, metrics_dict in matrices.items():
+            # Use the first available metric for each subject
+            matrix = next(iter(metrics_dict.values()))
+            # Small check to ensure matrices are the expected shape.
+            if matrix.shape != freq_mat.shape:
+                log.warning(f"Matrix for subject {sub} has shape {matrix.shape}, expected {freq_mat.shape}. Skipping.")
+                continue
+            freq_mat += np.where(matrix != 0, 1, 0)  # Increment by 1 where connection is present
+
+        return freq_mat / len(matrices)  # Rescale to be between 0 and 1
