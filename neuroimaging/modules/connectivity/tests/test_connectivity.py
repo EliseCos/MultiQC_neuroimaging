@@ -150,6 +150,17 @@ def test_compute_density(reset_multiqc):
     assert module.compute_density(matrix) == pytest.approx(0.75)
 
 
+def test_extract_metric_from_filename_captures_until_npy(reset_multiqc):
+    """Test that metric extraction captures everything between stat- and .npy."""
+    from neuroimaging.modules.connectivity import connectivity
+
+    module = object.__new__(connectivity.MultiqcModule)
+
+    metric = module._extract_metric_from_filename("sub-01_connectome_stat-commit-v2.extra.npy")
+
+    assert metric == "commit-v2.extra"
+
+
 def test_frequency_matrix(reset_multiqc):
     """Test frequency matrix calculation across subjects."""
     from neuroimaging.modules.connectivity import connectivity
@@ -276,6 +287,66 @@ def test_single_subject_mode_adds_metric_selector_and_single_matrix_section(rese
         assert "sub-SINGLE_fa_connectivity_matrix_container" in matrix_section.content
         assert "sub-SINGLE_md_connectivity_matrix_container" in matrix_section.content
         assert "renderConnectivityMetric_sub_SINGLE" in matrix_section.content
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_single_subject_mode_fetches_all_metrics_when_metrics_config_is_empty(reset_multiqc):
+    """Test that an empty metrics config includes all detected metrics."""
+    from neuroimaging.modules.connectivity import connectivity
+
+    tmpdir = tempfile.mkdtemp()
+
+    try:
+        _write_lut(os.path.join(tmpdir, "atlas_LUT.json"), size=3)
+        np.save(os.path.join(tmpdir, "sub-SINGLE_stat-fa.npy"), _binary_matrix(3, shape=(3, 3)))
+        np.save(os.path.join(tmpdir, "sub-SINGLE_stat-md.npy"), _binary_matrix(5, shape=(3, 3)))
+
+        config.kwargs = {"single_subject": True}
+        config.connectivity = {"metrics": []}
+        _register_connectivity_files(
+            tmpdir,
+            ["sub-SINGLE_stat-fa.npy", "sub-SINGLE_stat-md.npy"],
+        )
+
+        module = connectivity.MultiqcModule()
+        selector_section, matrix_section = module.sections
+
+        assert len(module.sections) == 2
+        assert selector_section.name == "Connectivity Metric Selection"
+        assert "FA" in selector_section.content
+        assert "MD" in selector_section.content
+        assert "sub-SINGLE_fa_connectivity_matrix_container" in matrix_section.content
+        assert "sub-SINGLE_md_connectivity_matrix_container" in matrix_section.content
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_single_subject_mode_metrics_filter_keeps_only_selected_metric(reset_multiqc):
+    """Test that configured metrics filter restricts displayed matrices."""
+    from neuroimaging.modules.connectivity import connectivity
+
+    tmpdir = tempfile.mkdtemp()
+
+    try:
+        _write_lut(os.path.join(tmpdir, "atlas_LUT.json"), size=3)
+        np.save(os.path.join(tmpdir, "sub-SINGLE_stat-fa.npy"), _binary_matrix(3, shape=(3, 3)))
+        np.save(os.path.join(tmpdir, "sub-SINGLE_stat-md.npy"), _binary_matrix(5, shape=(3, 3)))
+
+        config.kwargs = {"single_subject": True}
+        config.connectivity = {"metrics": ["md"]}
+        _register_connectivity_files(
+            tmpdir,
+            ["sub-SINGLE_stat-fa.npy", "sub-SINGLE_stat-md.npy"],
+        )
+
+        module = connectivity.MultiqcModule()
+
+        assert len(module.sections) == 1
+        matrix_section = module.sections[0]
+        assert matrix_section.name == "Connectivity Matrix"
+        assert "sub-SINGLE_md_connectivity_matrix_container" in matrix_section.content
+        assert "sub-SINGLE_fa_connectivity_matrix_container" not in matrix_section.content
     finally:
         shutil.rmtree(tmpdir)
 

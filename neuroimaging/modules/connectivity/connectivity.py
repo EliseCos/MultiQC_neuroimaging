@@ -73,20 +73,26 @@ class MultiqcModule(BaseMultiqcModule):
             info=module_info,
         )
 
-        # Find and parse connectivity matrix files
-        metrics_filter = getattr(config, "connectivity", {}).get("metrics", ["fa", "md", "rd", "commit"])
+        # Find and parse connectivity matrix files.
+        # If no metrics are configured, include every metric detected in input filenames.
+        module_config = getattr(config, "connectivity", {}) or {}
+        metrics_filter = self._parse_metrics_filter(module_config.get("metrics", None))
         conn_data = {}
         for f in self.find_log_files("connectivity/matrices"):
-            if any(metric in f["fn"] for metric in metrics_filter):
-                # Extract the metric that matched
-                metric = next(metric for metric in metrics_filter if metric in f["fn"])
-                parsed = self.parse_connectivity_file(f)
-                if parsed:
-                    sample_name = parsed["sample_name"]
-                    # Support multiple metrics per sample
-                    if sample_name not in conn_data:
-                        conn_data[sample_name] = {}
-                    conn_data[sample_name][metric] = parsed["values"]
+            metric = self._extract_metric_from_filename(f["fn"])
+            if metric is None:
+                log.debug(f"Could not infer connectivity metric from filename '{f['fn']}'. Skipping file.")
+                continue
+            if metrics_filter is not None and metric not in metrics_filter:
+                continue
+
+            parsed = self.parse_connectivity_file(f)
+            if parsed:
+                sample_name = parsed["sample_name"]
+                # Support multiple metrics per sample
+                if sample_name not in conn_data:
+                    conn_data[sample_name] = {}
+                conn_data[sample_name][metric] = parsed["values"]
 
         # Find LUT files.
         for f in self.find_log_files("connectivity/lut"):
@@ -207,6 +213,24 @@ class MultiqcModule(BaseMultiqcModule):
             "ycats_samples": False,
             "colstops": VIRIDIS_COLSTOPS,
         }
+
+    def _parse_metrics_filter(self, metrics_config):
+        """Normalize metrics configuration.
+
+        Returns None when all detected metrics should be included.
+        """
+        if metrics_config in (None, [], "all"):
+            return None
+        if isinstance(metrics_config, str):
+            return {metrics_config.lower()}
+        return {metric.lower() for metric in metrics_config}
+
+    def _extract_metric_from_filename(self, filename: str):
+        """Extract metric token from connectivity matrix filenames."""
+        match = re.search(r"stat-(.+?)\.npy$", filename, flags=re.IGNORECASE)
+        if not match:
+            return None
+        return match.group(1).lower()
 
     def _build_metric_selector(self, metrics: list, default_metric: str, sample_name: str) -> str:
         """Build dropdown HTML for selecting which metric heatmap is visible."""

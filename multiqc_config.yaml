@@ -40,6 +40,10 @@ tractometry:
 
 # Structural connectivity module configuration
 connectivity:
+  # Optional list of metrics to include (case-insensitive).
+  # Examples: ["fa", "md", "rd", "ad", "commit"]
+  # Set to [] or null to include all detected metrics.
+  metrics: []
   iqr_multiplier: 1.5
 
 # Order that modules should appear in the report
