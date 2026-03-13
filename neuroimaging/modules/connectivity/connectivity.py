@@ -30,6 +30,15 @@ from multiqc.plots import heatmap
 log = logging.getLogger(__name__)
 
 
+VIRIDIS_COLSTOPS = [
+    [0.0, "#440154"],
+    [0.25, "#3b528b"],
+    [0.5, "#21918c"],
+    [0.75, "#5ec962"],
+    [1.0, "#fde725"],
+]
+
+
 class MultiqcModule(BaseMultiqcModule):
     """ "MultiQC module for connectivity matrices."""
 
@@ -158,76 +167,126 @@ class MultiqcModule(BaseMultiqcModule):
                         "display_values": False,
                         "xcats_samples": False,
                         "ycats_samples": False,
-                        # Mimick a viridis colormap.
-                        "colstops": [
-                            [0.0, "#440154"],
-                            [0.25, "#3b528b"],
-                            [0.5, "#21918c"],
-                            [0.75, "#5ec962"],
-                            [1.0, "#fde725"],
-                        ],
+                        # Mimic a viridis colormap.
+                        "colstops": VIRIDIS_COLSTOPS,
                     },
                 ),
                 statuses=status_groups,
             )
         else:
-            # In single-subject mode, just add the individual connectivity matrix as a heatmap.
-            # We assume select the first subject in the dictionary since there should only be one.
+            # In single-subject mode, render one matrix section controlled by a metric selector.
+            # We select the first sample because single-subject mode should only contain one sample.
             sample_name, metrics_dict = next(iter(conn_data.items()))
-            if len(metrics_dict) > 1:
-                # Multiple metrics available for this sample
-                for metric, matrix in metrics_dict.items():
-                    self.add_section(
-                        name=f"{metric.upper()} Connectivity Matrix",
-                        description=f"Individual structural connectivity matrix for {sample_name} weighted by the <strong>{metric.upper()}</strong> metric. "
-                        f"Each cell (i, j) represents the diffusion metric between regions i and j. "
-                        f"Values are displayed using a viridis colormap (purple=low, yellow=high). ",
-                        plot=heatmap.plot(
-                            matrix,
-                            xcats=[lut.get(str(i + 1)) for i in range(matrix.shape[0])],
-                            pconfig={
-                                "id": f"{sample_name}_{metric}_connectivity_matrix",
-                                "title": f"{metric.upper()} Connectivity Matrix",
-                                "display_values": False,
-                                "xcats_samples": False,
-                                "ycats_samples": False,
-                                "colstops": [
-                                    [0.0, "#440154"],
-                                    [0.25, "#3b528b"],
-                                    [0.5, "#21918c"],
-                                    [0.75, "#5ec962"],
-                                    [1.0, "#fde725"],
-                                ],
-                            },
-                        ),
-                    )
-            else:
-                # Only one metric available
-                metric, matrix = next(iter(metrics_dict.items()))
+            metrics = sorted(metrics_dict)
+            default_metric = metrics[0]
+
+            if len(metrics) > 1:
                 self.add_section(
-                    name="Connectivity Matrix",
-                    description=f"Individual structural connectivity matrix for {sample_name} weighted by the <strong>{metric.upper()}</strong> metric. "
-                    f"Each cell (i, j) represents the diffusion metric between brain regions i and j. "
-                    f"Values are displayed using a viridis colormap where purple indicates low/no connectivity and yellow indicates high connectivity. ",
-                    plot=heatmap.plot(
-                        matrix,
-                        xcats=[lut.get(str(i + 1)) for i in range(matrix.shape[0])],
-                        pconfig={
-                            "id": f"{sample_name}_connectivity_matrix",
-                            "title": "Connectivity Matrix",
-                            "display_values": False,
-                            "xcats_samples": False,
-                            "ycats_samples": False,
-                            "colstops": [
-                                [0.0, "#440154"],
-                                [0.25, "#3b528b"],
-                                [0.5, "#21918c"],
-                                [0.75, "#5ec962"],
-                                [1.0, "#fde725"],
-                            ],
-                        },
-                    ),
+                    name="Connectivity Metric Selection",
+                    anchor="connectivity_metric_selection",
+                    description="Select the diffusion metric used to display the connectivity matrix.",
+                    content=self._build_metric_selector(metrics, default_metric, sample_name),
                 )
+
+            self.add_section(
+                name="Connectivity Matrix",
+                anchor="connectivity_matrix",
+                description=f"Individual structural connectivity matrix for {sample_name}. "
+                "Each cell (i, j) represents the diffusion metric between brain regions i and j. "
+                "Values are displayed using a viridis colormap where purple indicates low/no connectivity and yellow indicates high connectivity.",
+                content=self._build_metric_matrices(metrics_dict, lut, sample_name, default_metric),
+            )
+
+    def _heatmap_pconfig(self, plot_id: str, title: str) -> Dict[str, object]:
+        """Return common heatmap configuration for connectivity plots."""
+        return {
+            "id": plot_id,
+            "title": title,
+            "display_values": False,
+            "xcats_samples": False,
+            "ycats_samples": False,
+            "colstops": VIRIDIS_COLSTOPS,
+        }
+
+    def _build_metric_selector(self, metrics: list, default_metric: str, sample_name: str) -> str:
+        """Build dropdown HTML for selecting which metric heatmap is visible."""
+        options_html = "".join(
+            [
+                f'<option value="{metric}" {"selected" if metric == default_metric else ""}>{metric.upper()}</option>'
+                for metric in metrics
+            ]
+        )
+        hook_name = f"renderConnectivityMetric_{re.sub(r'[^0-9a-zA-Z_]', '_', sample_name)}"
+        return f"""
+        <div class="d-flex justify-content-center">
+            <div class="text-center">
+                <label class="form-label mb-2 fw-semibold">Metric</label>
+                <select
+                    class="form-select shadow-sm"
+                    aria-label="Connectivity metric selection"
+                    onchange="if (typeof {hook_name} === 'function') {hook_name}(this.value)"
+                    style="min-width: 180px;"
+                >
+                    {options_html}
+                </select>
+            </div>
+        </div>
+        """
+
+    def _build_metric_matrices(
+        self,
+        metrics_dict: Dict[str, np.ndarray],
+        lut: Dict[str, str],
+        sample_name: str,
+        default_metric: str,
+    ) -> str:
+        """Build a single section containing all metric heatmaps and JS to toggle them."""
+        sample_id = re.sub(r"[^0-9a-zA-Z_]", "_", sample_name)
+        metric_plot_ids = {metric: f"{sample_name}_{metric}_connectivity_matrix" for metric in sorted(metrics_dict)}
+        content = ""
+        for metric, plot_id in metric_plot_ids.items():
+            matrix = metrics_dict[metric]
+            display = "block" if metric == default_metric else "none"
+            plot = heatmap.plot(
+                matrix,
+                xcats=[lut.get(str(i + 1)) for i in range(matrix.shape[0])],
+                pconfig=self._heatmap_pconfig(plot_id=plot_id, title=f"{metric.upper()} Connectivity Matrix"),
+            )
+            content += f"""
+            <div id="{plot_id}_container" style="display: {display};">
+                {plot.interactive_plot(self.anchor, "connectivity_matrix")}
+            </div>
+            """
+
+        hook_name = f"renderConnectivityMetric_{sample_id}"
+        containers_var = f"connectivity_metric_containers_{sample_id}"
+        content += f"""
+        <script>
+        var {containers_var} = {json.dumps(metric_plot_ids)};
+        function {hook_name}(metric) {{
+            Object.values({containers_var}).forEach(function(plotId) {{
+                document.getElementById(plotId + '_container').style.display = 'none';
+            }});
+
+            var selectedPlotId = {containers_var}[metric];
+            var selectedContainer = document.getElementById(selectedPlotId + '_container');
+            selectedContainer.style.display = 'block';
+
+            if (typeof renderPlot === 'function') {{
+                renderPlot(selectedPlotId);
+            }}
+
+            setTimeout(function() {{
+                var heatmapContainer = selectedContainer.querySelector('.mqc-heatmap-container');
+                if (heatmapContainer) {{
+                    heatmapContainer.dispatchEvent(new Event('resize'));
+                }}
+            }}, 0);
+        }}
+        </script>
+        """
+
+        return content
 
     def parse_connectivity_file(self, f: str) -> Dict:
         """Parse a connectivity matrix file.

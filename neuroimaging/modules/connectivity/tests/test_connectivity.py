@@ -245,8 +245,8 @@ def test_ignore_samples_filters_general_stats(reset_multiqc, test_data_dir):
     config.sample_names_ignore = []
 
 
-def test_single_subject_mode_adds_one_section_per_metric(reset_multiqc):
-    """Test that single-subject mode renders one heatmap per available metric."""
+def test_single_subject_mode_adds_metric_selector_and_single_matrix_section(reset_multiqc):
+    """Test that single-subject mode uses one selector and one matrix section."""
     from neuroimaging.modules.connectivity import connectivity
 
     tmpdir = tempfile.mkdtemp()
@@ -264,9 +264,18 @@ def test_single_subject_mode_adds_one_section_per_metric(reset_multiqc):
 
         module = connectivity.MultiqcModule()
 
-        section_names = {section.name for section in module.sections}
         assert len(module.sections) == 2
-        assert section_names == {"FA Connectivity Matrix", "MD Connectivity Matrix"}
+
+        selector_section, matrix_section = module.sections
+        assert selector_section.name == "Connectivity Metric Selection"
+        assert "<select" in selector_section.content
+        assert "FA" in selector_section.content
+        assert "MD" in selector_section.content
+
+        assert matrix_section.name == "Connectivity Matrix"
+        assert "sub-SINGLE_fa_connectivity_matrix_container" in matrix_section.content
+        assert "sub-SINGLE_md_connectivity_matrix_container" in matrix_section.content
+        assert "renderConnectivityMetric_sub_SINGLE" in matrix_section.content
     finally:
         shutil.rmtree(tmpdir)
 
