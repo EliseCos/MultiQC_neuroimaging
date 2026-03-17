@@ -79,7 +79,7 @@ def test_build_discrete_mapping_prefers_lut_colors_when_complete():
     }
     values, cmap, vminmax = MultiqcModule._build_discrete_mapping(regions, fallback_cmap_name="plasma")
     assert values == {"A": 1.0, "B": 2.0}
-    assert vminmax == [0, 2]
+    assert vminmax == [1, 2]
     assert hasattr(cmap, "colors")
 
 
@@ -90,7 +90,7 @@ def test_build_discrete_mapping_falls_back_to_cmap_when_lut_missing_rgb():
     }
     values, cmap, vminmax = MultiqcModule._build_discrete_mapping(regions, fallback_cmap_name="viridis")
     assert values == {"A": 1.0, "B": 2.0}
-    assert vminmax == [0, 2]
+    assert vminmax == [1, 2]
     assert callable(cmap)
 
 
@@ -105,7 +105,7 @@ def test_build_discrete_mapping_force_cmap_even_when_rgb_present():
         force_cmap=True,
     )
     assert values == {"A": 1.0, "B": 2.0}
-    assert vminmax == [0, 2]
+    assert vminmax == [1, 2]
     assert callable(cmap)
 
 
