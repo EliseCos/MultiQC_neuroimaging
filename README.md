@@ -16,6 +16,7 @@ The plugin includes modules for:
 - **Coverage**: Dice coefficient validation for tractography WM coverage
 - **Framewise Displacement**: Head motion assessment between DWI volumes
 - **Streamline Count**: Tractography quality control using IQR-based outlier detection
+- **Atlas labels**: Visualize a cortical/subcortical parcellation using [`yabplot`](https://github.com/teanijarv/yabplot)
 
 All modules feature configurable thresholds, status indicators (pass/warn/fail), and interactive visualizations.
 
