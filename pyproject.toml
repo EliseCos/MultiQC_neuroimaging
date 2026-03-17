@@ -32,7 +32,10 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Visualization",
 ]
 dependencies = [
-    "multiqc", "pandas", "plotly", "yabplot"
+    "multiqc",
+    "pandas",
+    "plotly",
+    "yabplot"
 ]
 
 [tool.setuptools]
