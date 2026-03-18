@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from multiqc import config
+
 from neuroimaging.modules.atlaslabels.atlaslabels import MultiqcModule
 
 
@@ -131,3 +133,42 @@ def test_resolve_found_file_path_handles_relative_and_absolute_paths(tmp_path):
     abs_path = Path(tmp_path) / "atlas.nii.gz"
     resolved_abs = MultiqcModule._resolve_found_file_path({"fn": str(abs_path)})
     assert resolved_abs == str(abs_path)
+
+
+def test_adds_fallback_content_when_atlas_generation_fails(monkeypatch, tmp_path):
+    config.kwargs["single_subject"] = True
+    config.atlaslabels = {
+        "cortical_rois_indexes": [1, 2],
+        "subcortical_rois_indexes": [3, 4],
+    }
+
+    def fake_find_log_files(self, pattern):
+        if pattern == "atlaslabels/volume":
+            return [{"fn": "atlas.nii.gz", "root": str(tmp_path)}]
+        if pattern == "atlaslabels/metadata":
+            return []
+        return []
+
+    captured_sections: list[tuple[str, str]] = []
+
+    def fake_add_section(self, name, anchor, content, **kwargs):
+        captured_sections.append((name, content))
+
+    def always_fail_build(*args, **kwargs):
+        raise RuntimeError("forced atlas build failure")
+
+    monkeypatch.setattr(MultiqcModule, "find_log_files", fake_find_log_files, raising=False)
+    monkeypatch.setattr(MultiqcModule, "add_section", fake_add_section, raising=False)
+    monkeypatch.setattr(MultiqcModule, "write_data_file", lambda *args, **kwargs: None, raising=False)
+
+    # Patch the module-level yabplot function used in __init__.
+    import neuroimaging.modules.atlaslabels.atlaslabels as atlaslabels_mod
+
+    monkeypatch.setattr(atlaslabels_mod.yab, "build_subcortical_atlas", always_fail_build)
+
+    MultiqcModule()
+
+    assert len(captured_sections) == 2
+    content_by_name = {name: content for name, content in captured_sections}
+    assert content_by_name["Cortical parcellation"] == "<p>Failed to generate cortical atlas preview.</p>"
+    assert content_by_name["Subcortical parcellation"] == "<p>Failed to generate subcortical atlas preview.</p>"

@@ -168,6 +168,7 @@ class MultiqcModule(BaseMultiqcModule):
                 )
         except Exception as e:
             log.warning(f"Cortical atlas build/render failed: {e}")
+            cortical_content = "<p>Failed to generate cortical atlas preview.</p>"
 
         try:
             sub_labels = {rid: info["name"] for rid, info in sorted(subcortical_regions.items())}
@@ -220,6 +221,7 @@ class MultiqcModule(BaseMultiqcModule):
                 )
         except Exception as e:
             log.warning(f"Subcortical atlas build/render failed: {e}")
+            subcortical_content = "<p>Failed to generate subcortical atlas preview.</p>"
 
         # Add the sections ot the report using base MultiQC functions
         self.add_section(
