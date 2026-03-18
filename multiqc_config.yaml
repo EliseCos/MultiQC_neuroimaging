@@ -38,6 +38,20 @@ tractometry:
   warn_threshold: 90 # Warn if bundle percentage < 90%
   fail_threshold: 80 # Fail if bundle percentage < 80%
 
+# Atlas labels module configuration
+atlaslabels:
+  style: "glossy"
+  cortical_rois_indexes: ["1:188", "225:227"] # Example for brainnetome preadolescent atlas.
+  subcortical_rois_indexes: ["189:224"] # Example for brainnetome preadolescent atlas.
+  cortical_cmap: "viridis"
+  subcortical_cmap: "magma"
+  force_cortical_cmap: False # If true, forces the cortical preview to use the cortical_cmap even if a LUT is provided
+  force_subcortical_cmap: True # If true, forces the subcortical preview to use the subcortical_cmap even if a LUT is provided
+  views: ["left_lateral", "left_medial", "superior", "anterior"]
+  figsize: [1200, 450]
+  smooth_i: 20
+  smooth_f: 0.5
+
 # Structural connectivity module configuration
 connectivity:
   # Optional list of metrics to include (case-insensitive).
@@ -48,6 +62,7 @@ connectivity:
 
 # Order that modules should appear in the report
 module_order:
+  - atlaslabels
   - framewise_displacement
   - coverage
   - streamline_count
@@ -72,6 +87,10 @@ sp:
     fn: "cortical_*_volume_*.tsv"
   subcortical/volume:
     fn: "subcortical_*_volume_*.tsv"
+  atlaslabels/volume:
+    fn: "*seg-*_dseg.nii.gz"
+  atlaslabels/metadata:
+    fn: "*seg-*_dseg.txt"
   metricsinroi:
     fn: "*mean_desc-roi_stats.tsv"
     shared: true

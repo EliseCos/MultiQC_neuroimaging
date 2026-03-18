@@ -17,6 +17,7 @@ modules = [
     ("connectivity", "neuroimaging.modules.connectivity:MultiqcModule"),
     ("cortical", "neuroimaging.modules.cortical:MultiqcModule"),
     ("subcortical", "neuroimaging.modules.subcortical:MultiqcModule"),
+    ("atlaslabels", "neuroimaging.modules.atlaslabels:MultiqcModule"),
     (
         "framewise_displacement",
         "neuroimaging.modules.framewise_displacement:MultiqcModule",

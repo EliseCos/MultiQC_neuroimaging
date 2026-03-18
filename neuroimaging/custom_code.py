@@ -50,6 +50,12 @@ def neuroimaging_execution_start():
     if "subcortical/volume" not in config.sp:
         config.update_dict(config.sp, {"subcortical/volume": {"fn": "*_subcortical_volumes.tsv"}})
 
+    # Atlas labels search patterns (single-subject cortical projection)
+    if "atlaslabels/volume" not in config.sp:
+        config.update_dict(config.sp, {"atlaslabels/volume": {"fn": "*atlas*.nii.gz"}})
+    if "atlaslabels/metadata" not in config.sp:
+        config.update_dict(config.sp, {"atlaslabels/metadata": {"fn": "*atlas*labels*.txt"}})
+
     # Framewise displacement search pattern: eddy restricted movement RMS files
     if "framewise_displacement" not in config.sp:
         config.update_dict(
