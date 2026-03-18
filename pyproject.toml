@@ -48,6 +48,7 @@ packages = [
     "neuroimaging.modules.framewise_displacement",
     "neuroimaging.modules.coverage",
     "neuroimaging.modules.streamline_count",
+    "neuroimaging.modules.connectivity",
 ]
 
 [project.urls]
@@ -70,6 +71,7 @@ coverage = "neuroimaging.modules.coverage:MultiqcModule"
 streamline_count = "neuroimaging.modules.streamline_count:MultiqcModule"
 metricsinroi = "neuroimaging.modules.metricsinroi:MultiqcModule"
 harmonization = "neuroimaging.modules.harmonization.harmonization:MultiqcModule"
+connectivity = "neuroimaging.modules.connectivity:MultiqcModule"
 
 [project.entry-points."multiqc.cli_options.v1"]
 single_subject = "neuroimaging.cli:single_subject"

@@ -107,3 +107,15 @@ def neuroimaging_execution_start():
             config.sp,
             {"harmonization/harmonization_distance": {"fn": "*.bhattacharrya.txt"}},
         )
+
+    if "connectivity/matrices" not in config.sp:
+        config.update_dict(
+            config.sp,
+            {"connectivity/matrices": {"fn": "*stat-*.npy"}},
+        )
+
+    if "connectivity/lut" not in config.sp:
+        config.update_dict(
+            config.sp,
+            {"connectivity/lut": {"fn": "*LUT.json"}},
+        )

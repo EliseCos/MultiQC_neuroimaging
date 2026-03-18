@@ -38,6 +38,14 @@ tractometry:
   warn_threshold: 90 # Warn if bundle percentage < 90%
   fail_threshold: 80 # Fail if bundle percentage < 80%
 
+# Structural connectivity module configuration
+connectivity:
+  # Optional list of metrics to include (case-insensitive).
+  # Examples: ["fa", "md", "rd", "ad", "commit"]
+  # Set to [] or null to include all detected metrics.
+  metrics: []
+  iqr_multiplier: 1.5
+
 # Order that modules should appear in the report
 module_order:
   - framewise_displacement
@@ -82,3 +90,7 @@ sp:
     fn: "AgeCurve*.json"
   harmonization/harmonization_distance:
     fn: "*.bhattacharrya.txt"
+  connectivity/matrices:
+    fn: "*stat-*.npy"
+  connectivity/lut:
+    fn: "*LUT.json"
