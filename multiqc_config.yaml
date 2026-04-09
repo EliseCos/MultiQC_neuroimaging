@@ -1,6 +1,10 @@
 ---
 # MultiQC example configuration for MultiQC_neuroimaging
 
+# Bundles module configuration default values.
+bundles:
+  bundles: [] # List of bundles to include, otherwise will use all detected bundles.
+
 # Streamline Count module configuration default thresholds
 streamline_count:
   iqr_multiplier: 3 # Default: samples outside Q1 - 3*IQR to Q3 + 3*IQR are marked as fail
@@ -66,6 +70,7 @@ module_order:
   - framewise_displacement
   - coverage
   - streamline_count
+  - bundles
   - tractometry
   - metricsinroi
   - harmonization
@@ -80,6 +85,10 @@ sp:
     fn: "*coverage_metrics.tsv"
   streamline_count:
     fn: "*streamline_count.tsv"
+  bundles/trk:
+    fn: "*.trk"
+  bundles/nii:
+    fn: "*.nii.gz"
   tractometry:
     fn: "*bundles_mean_stats.tsv"
     shared: true

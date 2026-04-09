@@ -125,3 +125,15 @@ def neuroimaging_execution_start():
             config.sp,
             {"connectivity/lut": {"fn": "*LUT.json"}},
         )
+
+    if "bundles/trk" not in config.sp:
+        config.update_dict(
+            config.sp,
+            {"bundles/trk": {"fn": "*.trk"}},
+        )
+
+    if "bundles/nii" not in config.sp:
+        config.update_dict(
+            config.sp,
+            {"bundles/nii": {"fn": "*.nii.gz"}},
+        )

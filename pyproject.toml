@@ -35,7 +35,7 @@ dependencies = [
     "multiqc",
     "pandas",
     "plotly",
-    "yabplot"
+    "yabplot>=0.4.0"
 ]
 
 [tool.setuptools]
@@ -53,6 +53,7 @@ packages = [
     "neuroimaging.modules.streamline_count",
     "neuroimaging.modules.atlaslabels",
     "neuroimaging.modules.connectivity",
+    "neuroimaging.modules.bundles",
 ]
 
 [project.urls]
@@ -77,6 +78,7 @@ metricsinroi = "neuroimaging.modules.metricsinroi:MultiqcModule"
 harmonization = "neuroimaging.modules.harmonization.harmonization:MultiqcModule"
 atlaslabels = "neuroimaging.modules.atlaslabels:MultiqcModule"
 connectivity = "neuroimaging.modules.connectivity:MultiqcModule"
+bundles = "neuroimaging.modules.bundles:MultiqcModule"
 
 [project.entry-points."multiqc.cli_options.v1"]
 single_subject = "neuroimaging.cli:single_subject"
