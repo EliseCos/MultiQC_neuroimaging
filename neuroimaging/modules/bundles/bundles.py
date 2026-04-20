@@ -23,13 +23,10 @@ import tempfile
 from contextlib import redirect_stdout
 from typing import Dict, List
 
-import nibabel as nib
 import numpy as np
 import pyvista as pv
 import yabplot as yab
-from scipy.ndimage import gaussian_filter
 from skimage import io as skio
-from skimage import measure
 
 from multiqc import config
 from multiqc.base_module import BaseMultiqcModule, ModuleNoSamplesFound
@@ -108,7 +105,7 @@ class MultiqcModule(BaseMultiqcModule):
                 raise ModuleNoSamplesFound("No valid .trk files found to parse bundle names.")
 
         log.info(f"Found {len(trk_dict)} bundles to visualize")
-        bg_mesh = self._load_nii_as_mesh(nii_file) if nii_file else None
+        bg_mesh = yab.load_nii_as_mesh(nii_file) if nii_file else None
 
         bundle_images = self._render_bundle_images(trk_dict, bg_mesh)
         if not bundle_images:
@@ -124,8 +121,7 @@ class MultiqcModule(BaseMultiqcModule):
                 "Use the dropdown to switch between bundle previews. The figure shows the bundle extraction "
                 "for one tract at a time so you can inspect anatomy and spurious streamlines more easily. "
                 "<b>Views include, from left to right, superior, right lateral, left lateral, and anterior.</b> "
-                "In the left and right views, the view not containing the specific bundle will be empty "
-                "(this might not work with the corpus callosum bundles). "
+                "In the left and right views, the view not containing the specific bundle will be empty. "
                 "To rapidly switch between bundles, you can also use the left and right arrow keys on your keyboard. "
             ),
             content=content,
@@ -307,75 +303,6 @@ class MultiqcModule(BaseMultiqcModule):
         """
 
         return selector_html + "\n" + "\n".join(bundle_panels) + script
-
-    @staticmethod
-    def _load_nii_as_mesh(
-        nii_fp,
-        threshold: float = 0.5,
-        blur_sigma: float = 1.5,
-        smooth_i: int = 10,
-        smooth_f: float = 0.1,
-    ) -> pv.PolyData:
-        """
-        Small utility function to load a nifti image, then convert it to
-        meshes using marching cubes.
-
-        **For now, this function is here, but will be included directly in
-        yabplot in the future.**
-
-        Parameters
-        ----------
-        nii_path : str
-            Absolute path to a NIfTI file representing a 3D volume. If 4D, only the first volume will be used.
-        threshold : float, optional
-            Threshold applied after optional blur. Voxels ``> threshold`` are kept.
-        blur_sigma : float, optional
-            Gaussian blur (voxel units) before thresholding.
-        smooth_i : int, optional
-            Number of PyVista smoothing iterations after surface extraction.
-        smooth_f : float, optional
-            Relaxation factor for mesh smoothing.
-
-        Returns
-        -------
-        mesh : pyvista.PolyData
-            The extracted and smoothed surface mesh ready for plotting.
-        """
-        img = nib.load(nii_fp)
-        vol = img.get_fdata()
-
-        if vol.ndim > 3:
-            log.warning(f"[WARNING] detected {vol.ndim}d nifti volume. using the first volume (index 0).")
-            vol = vol[..., 0]
-
-        vol = np.nan_to_num(vol, nan=0.0)
-
-        if blur_sigma and blur_sigma > 0:
-            vol = gaussian_filter(vol, sigma=float(blur_sigma))
-
-        mask = vol > float(threshold)
-
-        if not np.any(mask):
-            raise ValueError("Mask is empty after thresholding. Adjust threshold/blur_sigma.")
-
-        verts_vox, faces, _, _ = measure.marching_cubes(mask.astype(np.float32), level=0.5)
-        verts_world = nib.affines.apply_affine(img.affine, verts_vox)
-
-        faces_pv = np.hstack([np.full((faces.shape[0], 1), 3, dtype=np.int64), faces.astype(np.int64)]).ravel()
-        mesh = pv.PolyData(verts_world.astype(np.float32), faces_pv)
-
-        if smooth_i and smooth_i > 0:
-            mesh = mesh.smooth(n_iter=int(smooth_i), relaxation_factor=float(smooth_f))
-
-        if mesh.n_points == 0:
-            raise ValueError("Extracted mesh has no vertices. Check input mask and parameters.")
-
-        try:
-            mesh = mesh.fill_holes(1000)
-        except Exception as exc:
-            log.warning(f"Mesh hole filling failed: {exc}. Continuing with unfilled meshes.")
-
-        return mesh
 
     @staticmethod
     def _crop_png_whitespace(png_path: str, white_threshold: int = 245, pad: int = 8) -> None:

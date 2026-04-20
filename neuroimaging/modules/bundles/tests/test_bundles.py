@@ -163,7 +163,6 @@ def test_init_filters_configured_bundle_list_with_start_of_filename_match(monkey
         captured_sections.append((name, anchor, content))
 
     monkeypatch.setattr(MultiqcModule, "find_log_files", fake_find_log_files, raising=False)
-    monkeypatch.setattr(MultiqcModule, "_load_nii_as_mesh", lambda *args, **kwargs: None)
     monkeypatch.setattr(MultiqcModule, "_render_bundle_images", fake_render_bundle_images, raising=False)
     monkeypatch.setattr(MultiqcModule, "add_section", fake_add_section, raising=False)
 
@@ -221,7 +220,6 @@ def test_init_uses_parse_trk_paths_when_no_bundle_filter(monkeypatch, tmp_path):
 
     monkeypatch.setattr(MultiqcModule, "find_log_files", fake_find_log_files, raising=False)
     monkeypatch.setattr(MultiqcModule, "_parse_trk_paths", fake_parse_trk_paths, raising=False)
-    monkeypatch.setattr(MultiqcModule, "_load_nii_as_mesh", lambda *args, **kwargs: None)
     monkeypatch.setattr(MultiqcModule, "_render_bundle_images", fake_render_bundle_images, raising=False)
     monkeypatch.setattr(MultiqcModule, "add_section", lambda *args, **kwargs: None, raising=False)
 
@@ -244,7 +242,6 @@ def test_init_raises_when_render_returns_empty(monkeypatch, tmp_path):
         return []
 
     monkeypatch.setattr(MultiqcModule, "find_log_files", fake_find_log_files, raising=False)
-    monkeypatch.setattr(MultiqcModule, "_load_nii_as_mesh", lambda *args, **kwargs: None)
     monkeypatch.setattr(MultiqcModule, "_render_bundle_images", lambda *args, **kwargs: {}, raising=False)
 
     with pytest.raises(ModuleNoSamplesFound):
@@ -271,10 +268,10 @@ def test_init_warns_on_multiple_nii_and_uses_first(monkeypatch, tmp_path, caplog
 
     def fake_load_nii_as_mesh(nii_fp):
         called["nii_fp"] = nii_fp
-        return "mesh"
+        return object()
 
     monkeypatch.setattr(MultiqcModule, "find_log_files", fake_find_log_files, raising=False)
-    monkeypatch.setattr(MultiqcModule, "_load_nii_as_mesh", staticmethod(fake_load_nii_as_mesh))
+    monkeypatch.setattr("neuroimaging.modules.bundles.bundles.yab.load_nii_as_mesh", fake_load_nii_as_mesh)
     monkeypatch.setattr(
         MultiqcModule,
         "_render_bundle_images",
@@ -302,11 +299,7 @@ def test_init_warns_when_no_nii_and_skips_mesh_loading(monkeypatch, tmp_path, ca
             return []
         return []
 
-    def fail_if_called(*args, **kwargs):
-        raise AssertionError("_load_nii_as_mesh should not be called when no .nii is present")
-
     monkeypatch.setattr(MultiqcModule, "find_log_files", fake_find_log_files, raising=False)
-    monkeypatch.setattr(MultiqcModule, "_load_nii_as_mesh", fail_if_called)
     monkeypatch.setattr(
         MultiqcModule,
         "_render_bundle_images",
