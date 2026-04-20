@@ -10,8 +10,8 @@ RUN \
     echo "Docker build log: Run apt-get update" 1>&2 && \
     apt-get update -y -qq \
     && \
-    echo "Docker build log: Install procps" 1>&2 && \
-    apt-get install -y -qq procps && \
+    echo "Docker build log: Install procps and git" 1>&2 && \
+    apt-get install -y -qq procps git && \
     if [ "$INSTALL_PANDOC" = "true" ]; then \
         echo "Docker build log: Install pandoc and LaTeX for PDF generation" 1>&2 && \
         apt-get install -y -qq pandoc texlive-latex-base texlive-fonts-recommended texlive-latex-extra texlive-luatex; \
