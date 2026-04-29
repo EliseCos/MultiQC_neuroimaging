@@ -143,7 +143,7 @@ class MultiqcModule(BaseMultiqcModule):
             plotter_cort = yab.plot_subcortical(
                 data=cortical_data,
                 custom_atlas_path=str(cortical_dir),
-                bmesh_type=None,
+                bmesh=None,
                 views=self.config.get(
                     "views",
                     ["left_lateral", "left_medial", "superior", "anterior"],
@@ -196,7 +196,7 @@ class MultiqcModule(BaseMultiqcModule):
             plotter_sub = yab.plot_subcortical(
                 data=sub_data,
                 custom_atlas_path=str(subcortical_dir),
-                bmesh_type=None,
+                bmesh=None,
                 views=self.config.get(
                     "views",
                     ["left_lateral", "left_medial", "superior", "anterior"],
