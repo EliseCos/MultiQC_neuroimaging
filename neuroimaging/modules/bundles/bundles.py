@@ -48,7 +48,7 @@ class MultiqcModule(BaseMultiqcModule):
     def __init__(self):
         super(MultiqcModule, self).__init__(
             name="White Matter Bundles",
-            target="bundles",
+            anchor="bundles",
             href="https://github.com/nf-neuro/MultiQC_neuroimaging",
             info=(
                 "Visualization of white matter bundles for quality control purposes. "
