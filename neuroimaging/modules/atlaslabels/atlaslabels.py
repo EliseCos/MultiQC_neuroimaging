@@ -57,11 +57,29 @@ class MultiqcModule(BaseMultiqcModule):
             raise ModuleNoSamplesFound
 
         # Get the indexes of the cortical and subcortical ROIs from user-defined config.
-        cortical_idx_spec = self.config.get("cortical_rois_indexes")
-        subcortical_idx_spec = self.config.get("subcortical_rois_indexes")
+        # CLI arguments take precedence over config file settings.
+        cortical_idx_spec = None
+        subcortical_idx_spec = None
+
+        # Check CLI arguments first (take precedence)
+        cortical_rois_cli = config.kwargs.get("cortical_rois")
+        if cortical_rois_cli:
+            cortical_idx_spec = list(cortical_rois_cli)
+
+        subcortical_rois_cli = config.kwargs.get("subcortical_rois")
+        if subcortical_rois_cli:
+            subcortical_idx_spec = list(subcortical_rois_cli)
+
+        # Fallback to config file if CLI not provided
+        if cortical_idx_spec is None:
+            cortical_idx_spec = self.config.get("cortical_rois_indexes")
+
+        if subcortical_idx_spec is None:
+            subcortical_idx_spec = self.config.get("subcortical_rois_indexes")
+
         if cortical_idx_spec is None and subcortical_idx_spec is None:
             log.warning(
-                "Both cortical_rois_indexes and subcortical_rois_indexes must be provided in atlaslabels config."
+                "Both cortical_rois_indexes and subcortical_rois_indexes must be provided in atlaslabels config or via CLI."
             )
             raise ModuleNoSamplesFound
 
@@ -140,21 +158,23 @@ class MultiqcModule(BaseMultiqcModule):
 
             # Generates the images, we use the subcortical function since it uses
             # surfaces generated from a volumetric parcellation
-            plotter_cort = yab.plot_subcortical(
-                data=cortical_data,
-                custom_atlas_path=str(cortical_dir),
-                bmesh=None,
-                views=self.config.get(
-                    "views",
-                    ["left_lateral", "left_medial", "superior", "anterior"],
-                ),
-                cmap=cortical_cmap,
-                vminmax=cortical_vminmax,
-                style=self.config.get("style", "glossy"),
-                figsize=tuple(self.config.get("figsize", [1200, 450])),
-                display_type="object",
-                export_path=str(cortical_preview_path),
-            )
+            f = io.StringIO()
+            with redirect_stdout(f):
+                plotter_cort = yab.plot_subcortical(
+                    data=cortical_data,
+                    custom_atlas_path=str(cortical_dir),
+                    bmesh=None,
+                    views=self.config.get(
+                        "views",
+                        ["left_lateral", "left_medial", "superior", "anterior"],
+                    ),
+                    cmap=cortical_cmap,
+                    vminmax=cortical_vminmax,
+                    style=self.config.get("style", "glossy"),
+                    display_type="matplotlib",
+                    export_path=str(cortical_preview_path),
+                )
+            log.debug(f"yabplot cortical atlas plot output:\n{f.getvalue()}")
             if hasattr(plotter_cort, "close"):
                 plotter_cort.close()
 
@@ -163,7 +183,7 @@ class MultiqcModule(BaseMultiqcModule):
                 img_b64 = base64.b64encode(cortical_preview_path.read_bytes()).decode("ascii")
                 cortical_content = (
                     '<img alt="Cortical atlas mesh preview" '
-                    'style="max-width:auto;height:auto;" '
+                    'style="max-width:100%;height:auto;" '
                     f'src="data:image/png;base64,{img_b64}" />'
                 )
         except Exception as e:
@@ -193,21 +213,24 @@ class MultiqcModule(BaseMultiqcModule):
                 force_cmap=self.config.get("force_subcortical_cmap", False),
             )
 
-            plotter_sub = yab.plot_subcortical(
-                data=sub_data,
-                custom_atlas_path=str(subcortical_dir),
-                bmesh=None,
-                views=self.config.get(
-                    "views",
-                    ["left_lateral", "left_medial", "superior", "anterior"],
-                ),
-                cmap=sub_cmap,
-                vminmax=sub_vminmax,
-                style=self.config.get("style", "glossy"),
-                figsize=tuple(self.config.get("figsize", [1200, 450])),
-                display_type="object",
-                export_path=str(sub_preview_path),
-            )
+            f = io.StringIO()
+            with redirect_stdout(f):
+                plotter_sub = yab.plot_subcortical(
+                    data=sub_data,
+                    custom_atlas_path=str(subcortical_dir),
+                    bmesh=None,
+                    views=self.config.get(
+                        "views",
+                        ["left_lateral", "left_medial", "superior", "anterior"],
+                    ),
+                    cmap=sub_cmap,
+                    vminmax=sub_vminmax,
+                    style=self.config.get("style", "glossy"),
+                    display_type="matplotlib",
+                    export_path=str(sub_preview_path),
+                )
+            log.debug(f"yabplot subcortical atlas plot output:\n{f.getvalue()}")
+
             if hasattr(plotter_sub, "close"):
                 plotter_sub.close()
 
@@ -216,7 +239,7 @@ class MultiqcModule(BaseMultiqcModule):
                 sub_img_b64 = base64.b64encode(sub_preview_path.read_bytes()).decode("ascii")
                 subcortical_content = (
                     '<img alt="Subcortical atlas mesh preview" '
-                    'style="max-width:auto;height:auto;" '
+                    'style="max-width:100%;height:auto;" '
                     f'src="data:image/png;base64,{sub_img_b64}" />'
                 )
         except Exception as e:
