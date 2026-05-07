@@ -139,12 +139,13 @@ class MultiqcModule(BaseMultiqcModule):
         config_thresh = getattr(config, "framewise_displacement", {})
         warn_threshold = config_thresh.get("warn_threshold", 0.8)
         fail_threshold = config_thresh.get("fail_threshold", 2.0)
+        unit = config_thresh.get("unit", "mm")
 
         # Add colored regions
         plot_config = {
             "id": "fd_single_subject_plot",
             "title": "Framewise Displacement: Single Subject",
-            "ylab": "FD (mm)",
+            "ylab": f"FD ({unit})",
             "xlab": "Volume",
             "y_bands": [
                 {"from": 0, "to": warn_threshold, "color": "#C5FFC5"},
@@ -156,13 +157,13 @@ class MultiqcModule(BaseMultiqcModule):
                     "value": warn_threshold,
                     "color": "#95a5a6",
                     "dash": "dash",
-                    "label": f"Threshold: {warn_threshold} mm",
+                    "label": f"Threshold: {warn_threshold} {unit}",
                 },
                 {
                     "value": fail_threshold,
                     "color": "#95a5a6",
                     "dash": "dash",
-                    "label": f"Threshold: {fail_threshold} mm",
+                    "label": f"Threshold: {fail_threshold} {unit}",
                 },
             ],
             "colors": {sample_name: "#000000"},
@@ -177,7 +178,7 @@ class MultiqcModule(BaseMultiqcModule):
             "High spikes in FD may indicate excessive motion during scanning. "
             "While `eddy` attempts to correct for motion, users should be cautious "
             "when interpreting data from subjects with high FD values. "
-            f"Green: <{warn_threshold}mm, Yellow: {warn_threshold}-{fail_threshold}mm, Red: >{fail_threshold}mm",
+            f"Green: <{warn_threshold}{unit}, Yellow: {warn_threshold}-{fail_threshold}{unit}, Red: >{fail_threshold}{unit}",
             plot=linegraph.plot(plot_data, plot_config),
         )
 
@@ -189,6 +190,7 @@ class MultiqcModule(BaseMultiqcModule):
         config_thresh = getattr(config, "framewise_displacement", {})
         warn_threshold = config_thresh.get("warn_threshold", 0.8)
         fail_threshold = config_thresh.get("fail_threshold", 2.0)
+        unit = config_thresh.get("unit", "mm")
 
         # Calculate max FD for each sample
         max_fd_values = {}
@@ -224,7 +226,7 @@ class MultiqcModule(BaseMultiqcModule):
                 "max_fd": {
                     "title": "Max FD",
                     "description": "Maximum framewise displacement",
-                    "suffix": " mm",
+                    "suffix": f"FD ({unit})",
                     "max": max_fd_overall,
                     "min": 0,
                     "scale": "RdYlGn-rev",
@@ -246,7 +248,7 @@ class MultiqcModule(BaseMultiqcModule):
         plot_config = {
             "id": "fd_multi_subject_plot",
             "title": "Framewise Displacement",
-            "ylab": "FD (mm)",
+            "ylab": f"FD ({unit})",
             "xlab": "Volume",
             "colors": colors,
             "y_lines": [
@@ -254,13 +256,13 @@ class MultiqcModule(BaseMultiqcModule):
                     "value": warn_threshold,
                     "color": "#000000",
                     "dash": "dash",
-                    "label": f"Threshold: {warn_threshold} mm",
+                    "label": f"Threshold: {warn_threshold} {unit}",
                 },
                 {
                     "value": fail_threshold,
                     "color": "#000000",
                     "dash": "dash",
-                    "label": f"Threshold: {fail_threshold} mm",
+                    "label": f"Threshold: {fail_threshold} {unit}",
                 },
             ],
             "ymax": y_max,
@@ -283,9 +285,9 @@ class MultiqcModule(BaseMultiqcModule):
             "users should be cautious when interpreting data from subjects "
             "with high FD values. "
             "Lines are colored based on maximum FD. "
-            f"Green: <{warn_threshold}mm (pass), "
-            f"Yellow: {warn_threshold}-{fail_threshold}mm (warn), "
-            f"Red: >{fail_threshold}mm (fail)",
+            f"Green: <{warn_threshold}{unit} (pass), "
+            f"Yellow: {warn_threshold}-{fail_threshold}{unit} (warn), "
+            f"Red: >{fail_threshold}{unit} (fail)",
             plot=linegraph.plot(plot_data, plot_config),
             statuses=status_groups,
         )
