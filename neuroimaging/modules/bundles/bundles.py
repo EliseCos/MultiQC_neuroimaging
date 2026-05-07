@@ -23,6 +23,7 @@ import tempfile
 from contextlib import redirect_stdout
 from typing import Dict, List
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pyvista as pv
 import yabplot as yab
@@ -65,6 +66,7 @@ class MultiqcModule(BaseMultiqcModule):
 
         trk_files = list(self.find_log_files("bundles/trk"))
         nii_files = list(self.find_log_files("bundles/nii"))
+        max_bundles = self.config.get("max_bundles", 25)
 
         if not trk_files:
             raise ModuleNoSamplesFound
@@ -96,7 +98,7 @@ class MultiqcModule(BaseMultiqcModule):
             if not trk_dict:
                 raise ModuleNoSamplesFound(f"No .trk files found matching the specified bundles: {bundles_to_include}")
         else:
-            trk_dict = self._parse_trk_paths(trk_files)
+            trk_dict = self._parse_trk_paths(trk_files, max_bundles=max_bundles)
             if not trk_dict:
                 log.warning(
                     "No valid .trk files found to parse bundle names. Please check the file naming convention "
@@ -134,7 +136,7 @@ class MultiqcModule(BaseMultiqcModule):
         root = found_file.get("root", "")
         return os.path.join(root, fn) if root else fn
 
-    def _parse_trk_paths(self, files: List[dict]) -> Dict[str, str]:
+    def _parse_trk_paths(self, files: List[dict], max_bundles: int = 25) -> Dict[str, str]:
         """Parse bundle names from found .trk files and return a bundle->path mapping."""
         bundle_dict: Dict[str, str] = {}
         for found_file in files:
@@ -145,10 +147,11 @@ class MultiqcModule(BaseMultiqcModule):
                 bundle_dict[bundle_name] = self._resolve_found_file_path(found_file)
             else:
                 log.warning(f"Could not extract bundle name from file path: {filename}. Skipping this file.")
-        return bundle_dict
+        # Limit the number of bundles to the specified maximum
+        return dict(list(bundle_dict.items())[:max_bundles])
 
     def _render_bundle_images(self, trk_dict: Dict[str, str], bg_mesh: pv.PolyData | None) -> Dict[str, str]:
-        """Render bundle figures and return base64-encoded HTML images keyed by bundle name."""
+        """Render bundle figures and return base64-encoded SVG images keyed by bundle name."""
         bundle_images: Dict[str, str] = {}
 
         for bundle_name, trk_path in trk_dict.items():
@@ -156,18 +159,22 @@ class MultiqcModule(BaseMultiqcModule):
                 with tempfile.TemporaryDirectory() as tmpdir:
                     tmp_trk_path = os.path.join(tmpdir, f"{bundle_name}.trk")
                     shutil.copy(trk_path, tmp_trk_path)
+                    pv.OFF_SCREEN = True
 
                     export_path = os.path.join(tmpdir, f"bundles_{bundle_name}.png")
-                    with redirect_stdout(io.StringIO()):
-                        yab.plot_tracts(
-                            custom_atlas_path=tmpdir,
-                            views=["superior", "right_lateral", "left_lateral", "anterior"],
-                            bmesh=bg_mesh,
-                            figsize=(2000, 1200),
-                            display_type="object",
-                            orientation_coloring=True,
-                            export_path=export_path,
-                        )
+                    # with redirect_stdout(io.StringIO()):
+                    yab.plot_tracts(
+                        custom_atlas_path=tmpdir,
+                        views=["inferior", "superior", "right_lateral", "left_lateral", "anterior"],
+                        layout=(1, 5),
+                        bmesh=bg_mesh,
+                        figsize=None,
+                        display_type="matplotlib",
+                        orientation_coloring=True,
+                        export_path=export_path,
+                    )
+                    pv.close_all()
+                    plt.close()
 
                     if not os.path.exists(export_path):
                         log.warning(f"Bundle preview was not created for '{bundle_name}'.")
@@ -312,6 +319,11 @@ class MultiqcModule(BaseMultiqcModule):
             if img.size == 0:
                 return
 
+            # Then we need to remove the first subplot to the left
+            # Image comtains 5 subplots, all of the same width, so we can just
+            # remove the first 1/5th of the width from the left
+            img = img[:, img.shape[1] // 5 :]
+
             if np.issubdtype(img.dtype, np.floating) and float(np.nanmax(img)) <= 1.0:
                 threshold = white_threshold / 255.0
             else:
@@ -335,6 +347,8 @@ class MultiqcModule(BaseMultiqcModule):
             right = min(int(cols[-1]) + pad + 1, img.shape[1])
 
             cropped = img[top:bottom, left:right]
+
+            # Save cropped image.
             if cropped.shape != img.shape:
                 skio.imsave(png_path, cropped, check_contrast=False)
         except Exception as exc:

@@ -4,6 +4,7 @@
 # Bundles module configuration default values.
 bundles:
   bundles: [] # List of bundles to include, otherwise will use all detected bundles.
+  max_bundles: 20 # Maximum number of bundles to display in the report (default: 10)
 
 # Streamline Count module configuration default thresholds
 streamline_count:

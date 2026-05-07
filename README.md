@@ -17,6 +17,9 @@ The plugin includes modules for:
 - **Framewise Displacement**: Head motion assessment between DWI volumes
 - **Streamline Count**: Tractography quality control using IQR-based outlier detection
 - **Atlas labels**: Visualize a cortical/subcortical parcellation using [`yabplot`](https://github.com/teanijarv/yabplot)
+- **Bundle visualization**: Visualize WM bundles using [`yabplot`](https://github.com/teanijarv/yabplot)
+- **Connectivity**: Connectivity matrices visualization and global statistics.
+- **Harmonization**: Harmonization statistics and curves
 
 All modules feature configurable thresholds, status indicators (pass/warn/fail), and interactive visualizations.
 
