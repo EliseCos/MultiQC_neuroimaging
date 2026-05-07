@@ -11,7 +11,7 @@ RUN \
     apt-get update -y -qq \
     && \
     echo "Docker build log: Install procps and git" 1>&2 && \
-    apt-get install -y -qq procps git && \
+    apt-get install -y -qq procps git libegl1 libosmesa6-dev && \
     if [ "$INSTALL_PANDOC" = "true" ]; then \
         echo "Docker build log: Install pandoc and LaTeX for PDF generation" 1>&2 && \
         apt-get install -y -qq pandoc texlive-latex-base texlive-fonts-recommended texlive-latex-extra texlive-luatex; \
@@ -46,6 +46,10 @@ WORKDIR /home/multiqc
 # Check everything is working smoothly
 RUN echo "Docker build log: Testing multiqc" 1>&2 && \
     multiqc --help
+
+# Set display env variable for pyvista rendering
+ENV VTK_DEFAULT_BACKEND=egl
+ENV VTK_DEFAULT_OPENGL_WINDOW=vtkEGLRenderWindow
 
 # Set multiqc as the entrypoint
 ENTRYPOINT ["multiqc"]
