@@ -139,7 +139,7 @@ class MultiqcModule(BaseMultiqcModule):
         config_thresh = getattr(config, "framewise_displacement", {})
         warn_threshold = config_thresh.get("warn_threshold", 0.8)
         fail_threshold = config_thresh.get("fail_threshold", 2.0)
-        unit = config_thresh.get("unit", "mm") or "mm"
+        unit = config_thresh.get("unit", "mm")
 
         # Add colored regions
         plot_config = {
@@ -190,7 +190,7 @@ class MultiqcModule(BaseMultiqcModule):
         config_thresh = getattr(config, "framewise_displacement", {})
         warn_threshold = config_thresh.get("warn_threshold", 0.8)
         fail_threshold = config_thresh.get("fail_threshold", 2.0)
-        unit = config_thresh.get("unit", "mm") or "mm"
+        unit = config_thresh.get("unit", "mm")
 
         # Calculate max FD for each sample
         max_fd_values = {}
