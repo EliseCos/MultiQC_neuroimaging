@@ -211,7 +211,7 @@ def test_init_uses_parse_trk_paths_when_no_bundle_filter(monkeypatch, tmp_path):
             return []
         return []
 
-    def fake_parse_trk_paths(self, files):
+    def fake_parse_trk_paths(self, files, max_bundles=None):
         return parsed_trk_dict
 
     def fake_render_bundle_images(self, trk_dict, bg_mesh):
